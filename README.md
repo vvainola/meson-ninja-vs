@@ -8,6 +8,7 @@ set CXX="sccache cl"
 but still having the debugging capabilities of Visual Studio.
 
 ## Usage
+Call the script from same Visual Studio developer command prompt that is used for generating the build directory.
 ```
 python ninja-vs.py --build_root path_to_build_root
 ```
