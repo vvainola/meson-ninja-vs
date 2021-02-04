@@ -1,9 +1,9 @@
 # Visual Studio solution generation for Meson Ninja backend
 
 ## Overview
-Generate Visual Studio solution for [Meson](https://mesonbuild.com/) build system also with Ninja backend. The Visual Studio solution is only a wrapper for the Ninja build. Meson has native Visual Studio backend support but it is not as mature as the Ninja backend. In addition, using a compiler cache [sccache](https://github.com/mozilla/sccache/) is difficult with MSBuild. Using the Ninja backend allows setting the cache executable before generating build directory with
+Generate Visual Studio solution for [Meson](https://mesonbuild.com/) build system also with Ninja backend. The Visual Studio solution is only a wrapper for the Ninja build. Meson has native Visual Studio backend support but it is not as mature as the Ninja backend. In addition, using a compiler cache such as [sccache](https://github.com/mozilla/sccache/) is difficult with MSBuild. Using the Ninja backend allows setting the cache executable before generating build directory with
 ```
-CXX="sccache cl"
+set CXX="sccache cl"
 ```
 but still having the debugging capabilities of Visual Studio.
 
