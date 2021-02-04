@@ -17,3 +17,5 @@ The build root then contains the Visual Studio solution with same name as the pr
 
 ## Known issues
 * Executables are not automatically built before execution if build is out-of-date. By default "Build Solution" calls Ninja without specifying any targets. Other targets are not automatically built because that would make MSBuild call all other projects in parallel which messes up the Ninja build. If the "all projects" build is added as dependency for individual projects, it would no longer be possible to build single project at a time.
+* It is not possible to have the generation part of a meson.build file. The generation uses introspect information that is not available when generating the build directory for the first time.
+* Only Visual Studio 2019 is supported. Other versions can be used if the PlatformToolset field is corrected.
