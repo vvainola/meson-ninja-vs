@@ -57,11 +57,12 @@ class BuildTarget:
 
 
 class VcxProj:
-    def __init__(self, name, id, guid, build_by_default):
+    def __init__(self, name, id, guid, build_by_default, is_run_target):
         self.name = name
         self.id = id
         self.guid = guid
         self.build_by_default = build_by_default
+        self.is_run_target = is_run_target
 
 
 def get_meson_command(build_dir):
@@ -71,7 +72,11 @@ def get_meson_command(build_dir):
             if lines[i] == "rule REGENERATE_BUILD\n":
                 command = lines[i+1].split()
                 start = command.index("=") + 1
-                end = command.index("\"--internal\"")
+                # Sometimes the --internal flag is quoted and sometimes not
+                for i in range(len(command)):
+                    if "--internal" in command[i]:
+                        end = i
+                        break
                 return " ".join(command[start:end])
     raise Exception("Unable to find meson command from build.ninja")
 
@@ -115,16 +120,16 @@ def get_headers(ninja, intro):
         if headers != None:
             headers = headers.group(0).split()
             for h in headers:
-                target_headers[target_name].add(h)
+                target_headers[target_name].add(Path(h))
     # Filter out headers that are not in source directory
     git_tracked = subprocess.check_output(['git', 'ls-files'], cwd=source_dir).decode('utf-8').strip().split('\n')
     prefix = os.path.relpath(source_dir, build_dir)
-    git_tracked = set([f'{prefix}/{f}' for f in git_tracked])
+    git_tracked = set([Path(f'{prefix}/{f}') for f in git_tracked])
     filt_target_headers = {}
     for target, headers in target_headers.items():
         filt_headers = []
         for h in headers & git_tracked:
-            filt_headers.append(h)
+            filt_headers.append((build_dir / h).absolute().resolve())
         filt_target_headers[target] = filt_headers
     return filt_target_headers
 
@@ -203,6 +208,8 @@ vs_start_filter = """<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 \t<ItemGroup>\n"""
 
+directory_guid = '{2150E333-8FDC-42A3-9474-1A3956D46DE8}'
+cpp_guid = '{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}'
 
 def get_introspect_files(build_dir):
     intro = {}
@@ -220,6 +227,12 @@ def get_introspect_files(build_dir):
         if not(path.exists()):
             raise Exception(f"Introspect data {path} missing!. Unable to generate Visual Studio solutions.")
         intro[key] = json.load(open(intro[key]))
+    # Modify build target ids so that the VS projects are created in correct subfolder
+    src_dir = intro['meson_info']['directories']['source']
+    for target in intro['targets']:
+        target_dir = Path(os.path.dirname(target['defined_in']))
+        prefix = target_dir.relative_to(src_dir)
+        target['id'] = str(prefix / target['id'])
     return intro
 
 class VisualStudioSolution:
@@ -246,25 +259,27 @@ class VisualStudioSolution:
         self.headers = get_headers(self.ninja, self.intro)
 
         # Make ninja project that handles building all targets
-        self.ninja_proj = VcxProj("ninja", "ninja", generate_guid(), True)
+        self.ninja_proj = VcxProj("ninja", "ninja", generate_guid(), build_by_default=True, is_run_target=True)
         self.vcxprojs.append(self.ninja_proj)
         self.generate_run_proj(self.ninja_proj, f'{self.meson} compile')
         # Install project
-        install_proj = VcxProj("RUN_INSTALL", "RUN_INSTALL", generate_guid(), False)
+        install_proj = VcxProj("RUN_INSTALL", "RUN_INSTALL", generate_guid(), build_by_default=False, is_run_target=True)
         self.vcxprojs.append(install_proj)
         self.generate_run_proj(install_proj, f'{self.meson} install')
         # Run tests project
-        test_proj = VcxProj("RUN_TESTS", "RUN_TESTS", generate_guid(), False)
+        test_proj = VcxProj("RUN_TESTS", "RUN_TESTS", generate_guid(), build_by_default=False, is_run_target=True)
         self.vcxprojs.append(test_proj)
         self.generate_run_proj(test_proj, f'{self.meson} test')
         # Regen project
-        self.generate_regen_proj()
+        self.regen_proj = VcxProj("REGEN", "REGEN", generate_guid(), build_by_default=True, is_run_target=True)
+        self.vcxprojs.append(self.regen_proj)
+        self.generate_regen_proj(self.regen_proj)
         # Individual build targets
         for target in self.intro['targets']:
             guid = generate_guid()
-            vcxproj = VcxProj(target['name'], target['id'], guid, False)
+            vcxproj = VcxProj(target['name'], target['id'], guid, build_by_default=False, is_run_target=target['type']=='run')
             self.vcxprojs.append(vcxproj)
-            if target['type'] == 'run':
+            if vcxproj.is_run_target:
                 self.generate_run_proj(vcxproj, f'{self.meson} compile {target["name"]}')
             else:
                 self.generate_vcxproj(BuildTarget(target, guid))
@@ -296,10 +311,8 @@ class VisualStudioSolution:
         if not(proj_contents.exists()):
             open(proj_contents, 'w', encoding='utf-8').close()
 
-    def generate_regen_proj(self):
-        self.regen_proj = VcxProj("REGEN", "REGEN", generate_guid(), True)
-        self.vcxprojs.append(self.regen_proj)
-        proj_file = open(f'{self.build_dir}/{self.regen_proj.id}.vcxproj', 'w', encoding='utf-8')
+    def generate_regen_proj(self, regen_proj):
+        proj_file = open(f'{self.build_dir}/{regen_proj.id}.vcxproj', 'w', encoding='utf-8')
         proj_file.write(vs_header_tmpl.format(
             configuration=self.build_type,
             platform=self.platform))
@@ -310,10 +323,10 @@ class VisualStudioSolution:
         proj_file.write(vs_config_tmpl.format(config_type="Utility"))
         proj_file.write(vs_propertygrp_tmpl.format(
             out_dir='.\\',
-            intermediate_dir='vs-regen-temp\\',
-            output='vs_regen'))
-        proj_contents = self.build_dir / 'meson-private' / 'vs_regen.rule'
-        proj_output = self.build_dir / 'meson-private' / 'vs_regen.out'
+            intermediate_dir='REGEN-temp\\',
+            output='REGEN'))
+        proj_contents = self.build_dir / 'meson-private' / 'REGEN.rule'
+        proj_output = self.build_dir / 'meson-private' / 'REGEN.out'
         proj_file.write(vs_custom_itemgroup_tmpl.format(
             command=f'{sys.executable} {os.path.abspath(__file__)} --build_root {self.build_dir}',
             additional_inputs=";".join(self.intro['buildsystem_files']),
@@ -392,10 +405,13 @@ class VisualStudioSolution:
         sln = open(f'{self.build_dir}/{sln_filename}', 'w', encoding='utf-8')
         sln.write('Microsoft Visual Studio Solution File, Format Version 12.00\n')
         sln.write('# Visual Studio 2019\n')
-        project_guid = generate_guid()
         for proj in self.vcxprojs:
-            sln.write(f'Project("{{{project_guid}}}") = "{proj.name}", "{proj.id}.vcxproj", "{{{proj.guid}}}"\n')
+            sln.write(f'Project("{{{cpp_guid}}}") = "{proj.name}", "{proj.id}.vcxproj", "{{{proj.guid}}}"\n')
             sln.write('EndProject\n')
+        # Move run targets to own folder
+        build_to_run_guid = generate_guid()
+        sln.write(f'Project("{directory_guid}") = "Build to run", "Build to run", "{{{build_to_run_guid}}}"\n')
+        sln.write('EndProject\n')
         sln.write('Global\n')
         sln.write('\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n')
         sln.write(f'\t\t{self.build_type}|{self.platform} = {self.build_type}|{self.platform}\n')
@@ -406,6 +422,14 @@ class VisualStudioSolution:
             sln.write(f'\t\t{{{proj.guid}}}.{self.build_type}|{self.platform}.ActiveCfg = {self.build_type}|{self.platform}\n')
             if proj.build_by_default:
                 sln.write(f'\t\t{{{proj.guid}}}.{self.build_type}|{self.platform}.Build.0 = {self.build_type}|{self.platform}\n')
+        sln.write('\tEndGlobalSection\n')
+
+        # Run targets in "Build to run" folder
+        sln.write('\tGlobalSection(NestedProjects) = preSolution\n')
+        for proj in self.vcxprojs:
+            if not(proj.is_run_target):
+                continue
+            sln.write(f'\t\t{{{proj.guid}}} = {{{build_to_run_guid}}}\n')
         sln.write('\tEndGlobalSection\n')
 
         sln.write('\tGlobalSection(SolutionProperties) = preSolution\n')
