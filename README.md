@@ -17,6 +17,7 @@ The build root then contains the Visual Studio solution with same name as the pr
 ## Features compared to native Visual Studio backend
 * Enable using wrapper exe for cl.exe.
 * Change Meson build options from Visual Studio GUI by changing "Reconfigure Meson" project properties.
+* Automatically add used headers from source directory to the projects.
 
 
 ## Known issues
