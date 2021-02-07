@@ -10,12 +10,15 @@ but still having the debugging capabilities of Visual Studio.
 ## Usage
 Call the script from same Visual Studio developer command prompt that is used for generating the build directory.
 ```
-python ninja-vs.py --build_root path_to_build_root
+python ninja_vs.py --build_root path_to_build_root
 ```
 The build root then contains the Visual Studio solution with same name as the project. Headers from source directory are automatically included after first build.
 
+## Features compared to native Visual Studio backend
+* Enable using wrapper exe for cl.exe.
+* Change Meson build options from Visual Studio GUI by changing "Reconfigure Meson" project properties.
+
 
 ## Known issues
-* Executables are not automatically built before execution if build is out-of-date. By default "Build Solution" calls Ninja without specifying any targets. Other targets are not automatically built because that would make MSBuild call all other projects in parallel which messes up the Ninja build. If the "all projects" build is added as dependency for individual projects, it would no longer be possible to build single project at a time.
-* It is not possible to have the generation part of a meson.build file. The generation uses introspect information that is not available when generating the build directory for the first time.
-* Only Visual Studio 2019 is supported. Other versions can be used if the PlatformToolset field is corrected.
+* It is not possible to have the generation as a part of a meson.build file. The generation uses introspect information that is not available when generating the build directory for the first time.
+* Only Visual Studio 2019 is supported. Other versions can be used if the PlatformToolset field is corrected. Other languages than C++ have not been tested.
