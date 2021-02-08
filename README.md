@@ -5,7 +5,7 @@ Generate Visual Studio solution for [Meson](https://mesonbuild.com/) build syste
 ```
 set CXX="sccache cl"
 ```
-but still having the debugging capabilities of Visual Studio.
+while still having the debugging capabilities of Visual Studio.
 
 ## Usage
 Call the script from same Visual Studio developer command prompt that is used for generating the build directory.
