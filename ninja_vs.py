@@ -430,14 +430,14 @@ class VisualStudioSolution:
         # Create rule with options
         rule = open(f'{self.build_dir}/meson_options.xml', 'w', encoding='utf-8')
         rule.write(vs_meson_options_rule)
-        rule.write('\t<Rule.Categories>')
+        rule.write('\t<Rule.Categories>\n')
         added_categories = []
         for opt in self.intro['buildoptions']:
             category = opt['section']
             if category not in added_categories:
                 added_categories.append(category)
-                rule.write(f'\t\t<Category Name="{category}" DisplayName="{category}" Description="" />')
-        rule.write('\t</Rule.Categories>')
+                rule.write(f'\t\t<Category Name="{category}" DisplayName="{category}" Description="" />\n')
+        rule.write('\t</Rule.Categories>\n')
         for opt in self.intro['buildoptions']:
             opt_name = opt['name'].replace('.', '__')
             opt_type = opt['type']
