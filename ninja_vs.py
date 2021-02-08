@@ -267,8 +267,10 @@ def run_reconfigure(build_dir):
         opt_value = re.search("(?<=(>)).*(?=(</))", opt).group(0)
         if opt_value != str(intro[opt_name]['value']):
             changed_options.append(f'-D{opt_name}=\"{opt_value}\"')
-    print(f'{get_meson_command(build_dir)} --reconfigure {" ".join(changed_options)}')
-    print(subprocess.check_output(f'{get_meson_command(build_dir)} --reconfigure {" ".join(changed_options)}', cwd=build_dir).decode('utf-8').replace('\r', ''))
+    configure = f'{get_meson_command(build_dir)} configure {" ".join(changed_options)}'
+    print(configure)
+    print(subprocess.check_output(configure, cwd=build_dir).decode('utf-8').replace('\r', ''))
+    print(subprocess.check_output(f'{get_meson_command(build_dir)} --reconfigure', cwd=build_dir).decode('utf-8').replace('\r', ''))
 
 
 class VisualStudioSolution:
