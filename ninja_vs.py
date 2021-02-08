@@ -255,6 +255,7 @@ def get_introspect_files(build_dir):
         target['id'] = str(prefix / target['id'])
     return intro
 
+
 def run_reconfigure(build_dir):
     build_dir = Path(build_dir)
     # Collect options into a dict with name for easier lookup
@@ -357,7 +358,7 @@ class VisualStudioSolution:
                                         is_run_target=True)
         self.vcxprojs.append(self.reconfigure_proj)
         self.generate_reconfigure_proj(self.reconfigure_proj,
-                                       f'{sys.executable} {__file__} --reconfigure --build_root={self.build_dir}')
+                                       f'{sys.executable} {os.path.abspath(__file__)} --reconfigure --build_root={self.build_dir}')
         # Individual build targets
         for target in self.intro['targets']:
             guid = generate_guid_from_path(self.build_dir / target['id'])
@@ -474,7 +475,7 @@ class VisualStudioSolution:
         if not(proj_contents.exists()):
             open(proj_contents, 'w', encoding='utf-8').close()
         open(proj_output, 'w', encoding='utf-8').close()
-    
+
     def generate_reconfigure_proj(self, proj: VcxProj, command):
         # Create rule with options
         rule = open(f'{self.build_dir}/meson_options.xml', 'w', encoding='utf-8')
@@ -504,7 +505,7 @@ class VisualStudioSolution:
             else:
                 rule.write(f'\t<StringProperty Name="meson_{opt_name}" DisplayName="{opt_name}" Category="{category}"/>\n')
         rule.write('</Rule>')
-        
+
         # Create the project file
         proj_file = open(f'{self.build_dir}/{proj.id}.vcxproj', 'w', encoding='utf-8')
         proj_file.write(vs_header_tmpl.format(configuration=self.build_type,
@@ -536,7 +537,6 @@ class VisualStudioSolution:
 
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
-
 
         if not(proj_contents.exists()):
             open(proj_contents, 'w', encoding='utf-8').close()
@@ -643,6 +643,7 @@ class VisualStudioSolution:
         sln.write('\tEndGlobalSection\n')
         sln.write('EndGlobal\n')
         sln.close()
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Create Visual Studio solution with ninja backend.')
