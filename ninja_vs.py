@@ -168,28 +168,17 @@ def get_meson_command(build_dir):
     raise Exception("Unable to find meson command from build.ninja")
 
 
-def get_ninja_command(build_dir):
-    log_file = build_dir / 'meson-logs' / 'meson-log.txt'
-    log = open(log_file)
-    log_contents = log.read()
-    log.close()
-    log_contents
-    line_with_ninja = re.search('\nFound ninja.*\n', log_contents)
-    if line_with_ninja != None:
-        return line_with_ninja.group(0).split()[-1].strip()
-    else:
-        raise Exception(f"Unable to find 'Found ninja' text from {log_file}")
-
-
-def get_headers(ninja, intro):
+def get_headers(meson, intro):
     build_dir = Path(intro['meson_info']['directories']['build'])
     source_dir = Path(intro['meson_info']['directories']['source'])
     targets = intro['targets']
     target_headers = {}
     for target in targets:
         target_headers[f'{target["name"]}'] = set()
+    # Remove extra quotes
+    meson = meson.replace('\"', '')
     # Ask list of headers used in object from ninja
-    object_deps = subprocess.check_output([ninja, '-C', build_dir, '-t', 'deps']).decode('utf-8').replace('\r', '\n').strip().split('\n\n\n\n')
+    object_deps = subprocess.check_output(meson.split() + ['compile', '-C', build_dir, '--ninja-args=-t,deps']).decode('utf-8').replace('\r', '\n').strip().split('\n\n\n\n')
     for dep in object_deps:
         object_name = re.match('^.*(?=: )', dep)
         if object_name == None:
@@ -302,8 +291,7 @@ class VisualStudioSolution:
         self.source_dir = self.intro['meson_info']['directories']['source']
 
         self.meson = get_meson_command(self.build_dir)
-        self.ninja = get_ninja_command(self.build_dir)
-        self.headers = get_headers(self.ninja, self.intro)
+        self.headers = get_headers(self.meson, self.intro)
 
         # Hacky solution to enforce ninja building all targets. All other projects
         # depend on prebuild solution which creates an empty file. Full Ninja build will
