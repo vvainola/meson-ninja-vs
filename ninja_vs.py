@@ -248,10 +248,10 @@ def get_introspect_files(build_dir):
 def run_reconfigure(build_dir):
     build_dir = Path(build_dir)
     # Collect options into a dict with name for easier lookup
-    raw_intro = get_introspect_files(build_dir)
-    intro = {}
-    for opt in raw_intro['buildoptions']:
-        intro[opt['name']] = opt
+    intro = get_introspect_files(build_dir)
+    buildoptions = {}
+    for opt in intro['buildoptions']:
+        buildoptions[opt['name']] = opt
 
     reconfigure_proj = build_dir / 'Reconfigure_project.vcxproj'
     proj_contents = ""
@@ -265,13 +265,14 @@ def run_reconfigure(build_dir):
     for opt in proj_options:
         opt_name = re.search("(?<=(</meson_)).*(?=(>))", opt).group(0).replace("__", ".")
         opt_value = re.search("(?<=(>)).*(?=(</))", opt).group(0)
-        if opt_value != str(intro[opt_name]['value']):
+        if opt_value != str(buildoptions[opt_name]['value']):
             changed_options.append(f'-D{opt_name}=\"{opt_value}\"')
     if changed_options != []:
         configure = f'{get_meson_command(build_dir)} configure {" ".join(changed_options)}'
         print(configure)
         print(subprocess.check_output(configure, cwd=build_dir).decode('utf-8').replace('\r', ''))
-    print(subprocess.check_output(f'{get_meson_command(build_dir)} --reconfigure', cwd=build_dir).decode('utf-8').replace('\r', ''))
+    src_dir = intro['meson_info']['directories']['source']
+    print(subprocess.check_output(f'{get_meson_command(build_dir)} setup --reconfigure {src_dir}', cwd=build_dir).decode('utf-8').replace('\r', ''))
 
 
 class VisualStudioSolution:
