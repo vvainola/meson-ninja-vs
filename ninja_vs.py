@@ -267,12 +267,13 @@ def run_reconfigure(build_dir):
         opt_value = re.search("(?<=(>)).*(?=(</))", opt).group(0)
         if opt_value != str(buildoptions[opt_name]['value']):
             changed_options.append(f'-D{opt_name}=\"{opt_value}\"')
+    meson = get_meson_command(build_dir)
     if changed_options != []:
-        configure = f'{get_meson_command(build_dir)} configure {" ".join(changed_options)}'
+        configure = f'{meson} configure {" ".join(changed_options)}'
         print(configure)
         print(subprocess.check_output(configure, cwd=build_dir).decode('utf-8').replace('\r', ''))
     src_dir = intro['meson_info']['directories']['source']
-    print(subprocess.check_output(f'{get_meson_command(build_dir)} setup --reconfigure {src_dir}', cwd=build_dir).decode('utf-8').replace('\r', ''))
+    print(subprocess.check_output(f'{meson} compile --ninja-args=build.ninja', cwd=build_dir).decode('utf-8').replace('\r', ''))
 
 
 class VisualStudioSolution:
