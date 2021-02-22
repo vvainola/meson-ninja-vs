@@ -28,6 +28,8 @@ import os
 import sys
 import json
 import uuid
+import shutil
+import glob
 vs_header_tmpl = """<?xml version="1.0" ?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" InitialTargets="{initial_targets}" DefaultTargets="Build" ToolsVersion="4.0">
 \t<ItemGroup Label="ProjectConfigurations">
@@ -153,7 +155,7 @@ class VcxProj:
 
 
 def get_meson_command(build_dir):
-    with open(build_dir / 'build.ninja', 'r') as f:
+    with open(Path(build_dir) / 'build.ninja', 'r') as f:
         lines = f.readlines()
         for i in range(len(lines)):
             if lines[i] == "rule REGENERATE_BUILD\n":
@@ -167,6 +169,16 @@ def get_meson_command(build_dir):
                 return " ".join(command[start:end])
     raise Exception("Unable to find meson command from build.ninja")
 
+def try_find_run_clang_tidy(source_dir):
+    # check source dir
+    for f in glob.glob(f'{source_dir}/**/run-clang-tidy.py', recursive=True):
+        return f
+    try:
+        # try PATH
+        run_clang_tidy = subprocess.check_output(['where', 'run-clang-tidy.py']).decode('utf-8').strip()
+        return run_clang_tidy
+    except subprocess.SubprocessError:
+        return None
 
 def get_headers(meson, intro):
     build_dir = Path(intro['meson_info']['directories']['build'])
@@ -281,8 +293,10 @@ class VisualStudioSolution:
         self.build_dir = Path(build_dir)
         if not(Path(build_dir).is_absolute()):
             self.build_dir = self.build_dir.absolute()
-        cl_location = subprocess.check_output('where cl')
-        arch = os.path.basename(os.path.dirname(cl_location)).decode('utf-8')
+        cl_location = shutil.which('cl')
+        if cl_location == None:
+            sys.exit("CL not found. Are you running from VS developer command prompt?")
+        arch = os.path.basename(os.path.dirname(cl_location))
         if arch == 'x86':
             self.platform = 'Win32'
         else:
@@ -350,6 +364,28 @@ class VisualStudioSolution:
                                         is_run_target=True)
         self.vcxprojs.append(self.reconfigure_proj)
         self.generate_reconfigure_proj(self.reconfigure_proj)
+        # Clang-Tidy
+        # Try find from PATH
+        clang_tidy = shutil.which('clang-tidy')
+        if clang_tidy == None:
+            # Try check VS installation folder
+            idx = cl_location.index('VC\\Tools')
+            path_prefix = cl_location[0:idx]
+            if os.path.exists(f'{path_prefix}\\VC\\Tools\\LLVM\\bin\\clang-tidy.exe'):
+                clang_tidy = f'{path_prefix}\\VC\\Tools\\LLVM\\bin\\clang-tidy.exe'
+        run_clang_tidy = try_find_run_clang_tidy(self.source_dir)
+        self.clang_tidy_found = (Path(self.source_dir) / '.clang-tidy').exists() and clang_tidy != None
+        if run_clang_tidy != None and self.clang_tidy_found:
+            clang_tidy_proj = VcxProj("Clang-Tidy",
+                            "clang_tidy",
+                            generate_guid_from_path(self.build_dir / 'clang-tidy'),
+                            build_by_default=False,
+                            is_run_target=True)
+            self.vcxprojs.append(clang_tidy_proj)
+            # Binary has to be specified because VS does add the clang folder to PATH
+            # Add /E flag so that /showIncludes is redirected to stderr
+            self.generate_run_proj(clang_tidy_proj, f'set PATH={os.path.dirname(clang_tidy)};%PATH% \n \"{sys.executable}\" \"{run_clang_tidy}\" -p=\"{self.build_dir}\" -extra-arg /E 2>NUL -q')
+        
         # Individual build targets
         for target in self.intro['targets']:
             guid = generate_guid_from_path(self.build_dir / target['id'])
@@ -490,7 +526,12 @@ class VisualStudioSolution:
             guid=target.guid,
             name=target.name,
             platform=self.platform))
+        if self.clang_tidy_found:
+            proj_file.write("\t<PropertyGroup>\n")
+            proj_file.write("\t\t<EnableClangTidyCodeAnalysis>true</EnableClangTidyCodeAnalysis>\n")
+            proj_file.write("\t</PropertyGroup>\n")
 
+        # NMake
         proj_file.write(vs_config_tmpl.format(config_type="MakeFile"))
         include_paths = []
         preprocessor_macros = []
@@ -514,12 +555,14 @@ class VisualStudioSolution:
             preprocessor_macros=";".join(preprocessor_macros),
             additional_options=" ".join(additional_options),
         ))
+        # Files
         proj_file.write('\t<ItemGroup>\n')
         for src in target.sources + target.extra_files + self.headers[target.name]:
             proj_file.write(f'\t\t<ClCompile Include="{src}">\n')
             proj_file.write(f'\t\t\t<AdditionalIncludeDirectories>{";".join(include_paths)}</AdditionalIncludeDirectories>\n')
             proj_file.write(f'\t\t</ClCompile>\n')
         proj_file.write('\t</ItemGroup>\n')
+        # Dependencies
         proj_file.write('\t<ItemGroup>\n')
         proj_file.write(vs_dependency_tmpl.format(
             vcxproj_name=f'{self.build_dir}\\{self.solution_prebuild.id}.vcxproj',
@@ -582,7 +625,6 @@ class VisualStudioSolution:
         sln.write('\tEndGlobalSection\n')
         sln.write('EndGlobal\n')
         sln.close()
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Create Visual Studio solution with ninja backend.')
