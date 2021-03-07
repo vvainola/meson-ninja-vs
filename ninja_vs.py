@@ -212,14 +212,15 @@ def get_headers(meson, intro):
             for h in headers:
                 target_headers[target_name].add(Path(h))
     # Filter out headers that are not in source directory
-    git_tracked = subprocess.check_output(['git', 'ls-files'], cwd=source_dir).decode('utf-8').strip().split('\n')
-    prefix = os.path.relpath(source_dir, build_dir)
-    git_tracked = set([Path(f'{prefix}/{f}') for f in git_tracked])
     filt_target_headers = {}
     for target, headers in target_headers.items():
         filt_headers = []
-        for h in headers & git_tracked:
-            filt_headers.append((build_dir / h).absolute().resolve())
+        for h in headers:
+            try:
+                (build_dir/h).relative_to(source_dir)
+                filt_headers.append(h.absolute().resolve())
+            except ValueError:
+                pass
         filt_target_headers[target] = filt_headers
     return filt_target_headers
 
