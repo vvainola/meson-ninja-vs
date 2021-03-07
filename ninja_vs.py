@@ -501,17 +501,17 @@ class VisualStudioSolution:
             opt_type = opt['type']
             category = opt['section']
             if opt_type == 'combo':
-                rule.write(f'\t<EnumProperty Name="meson_{opt_name}" DisplayName="{opt_name}" Description="{opt["description"]}" Category="{category}">\n')
+                rule.write(f'\t<EnumProperty Name="meson_{opt_name}" DisplayName="{opt["name"]}" Description="{opt["description"]}" Category="{category}">\n')
                 for choice in opt["choices"]:
                     rule.write(f'\t\t<EnumValue Name="{choice}" DisplayName="{choice}"/>\n')
                 rule.write(f'\t</EnumProperty>\n')
             elif opt_type == 'boolean':
-                rule.write(f'\t<EnumProperty Name="meson_{opt_name}" DisplayName="{opt_name}" Description="{opt["description"]}" Category="{category}">\n')
+                rule.write(f'\t<EnumProperty Name="meson_{opt_name}" DisplayName="{opt["name"]}" Description="{opt["description"]}" Category="{category}">\n')
                 rule.write(f'\t\t<EnumValue Name="True" DisplayName="True"/>\n')
                 rule.write(f'\t\t<EnumValue Name="False" DisplayName="False"/>\n')
                 rule.write(f'\t</EnumProperty>\n')
             else:
-                rule.write(f'\t<StringProperty Name="meson_{opt_name}" DisplayName="{opt_name}" Category="{category}"/>\n')
+                rule.write(f'\t<StringProperty Name="meson_{opt_name}" DisplayName="{opt["name"]}" Category="{category}"/>\n')
         rule.write('</Rule>')
 
         # Create the project file
