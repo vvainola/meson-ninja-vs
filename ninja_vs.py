@@ -175,10 +175,10 @@ def try_find_file(source_dir, filename):
         return f
     try:
         # try PATH
-        f = subprocess.check_output(['where', f'{filename}']).decode('utf-8').strip()
+        f = subprocess.check_output(['where', f'{filename}'], stderr=subprocess.DEVNULL).decode('utf-8').strip()
         return f
     except subprocess.SubprocessError:
-        return None
+        return "None"
 
 def get_headers(meson, intro):
     build_dir = Path(intro['meson_info']['directories']['build'])
@@ -295,7 +295,7 @@ class VisualStudioSolution:
             self.build_dir = self.build_dir.absolute()
         cl_location = shutil.which('cl')
         if cl_location == None:
-            sys.exit("CL not found. Are you running from VS developer command prompt?")
+            sys.exit("cl.exe not found from PATH. Are you running from VS developer command prompt?")
         arch = os.path.basename(os.path.dirname(cl_location))
         if arch == 'x86':
             self.platform = 'Win32'
@@ -376,7 +376,7 @@ class VisualStudioSolution:
         run_clang_tidy = try_find_file(self.source_dir, 'run-clang-tidy.py')
         clang_tidy_diff = try_find_file(self.source_dir, 'clang-tidy-diff.py') 
         self.clang_tidy_found = (Path(self.source_dir) / '.clang-tidy').exists() and clang_tidy != None
-        if run_clang_tidy != None and self.clang_tidy_found:
+        if run_clang_tidy != "None" and self.clang_tidy_found:
             clang_tidy_proj = VcxProj("Clang-Tidy",
                             "clang_tidy",
                             generate_guid_from_path(self.build_dir / 'clang-tidy'),
@@ -386,7 +386,7 @@ class VisualStudioSolution:
             # Binary has to be specified because VS doesn't add the clang folder to PATH
             # Add /E flag so that /showIncludes is redirected to stderr
             self.generate_run_proj(clang_tidy_proj, f'set PATH={os.path.dirname(clang_tidy)};%PATH% \n \"{sys.executable}\" \"{run_clang_tidy}\" -p=\"{self.build_dir}\" -extra-arg /E 2>NUL -q')
-        if run_clang_tidy != None and self.clang_tidy_found:
+        if clang_tidy_diff != "None" and self.clang_tidy_found:
             clang_tidy_diff_proj = VcxProj("Clang-Tidy-diff",
                             "clang_tidy_diff",
                             generate_guid_from_path(self.build_dir / 'clang-tidy-diff'),
