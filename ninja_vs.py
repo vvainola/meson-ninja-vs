@@ -169,14 +169,14 @@ def get_meson_command(build_dir):
                 return " ".join(command[start:end])
     raise Exception("Unable to find meson command from build.ninja")
 
-def try_find_run_clang_tidy(source_dir):
+def try_find_file(source_dir, filename):
     # check source dir
-    for f in glob.glob(f'{source_dir}/**/run-clang-tidy.py', recursive=True):
+    for f in glob.glob(f'{source_dir}/**/{filename}', recursive=True):
         return f
     try:
         # try PATH
-        run_clang_tidy = subprocess.check_output(['where', 'run-clang-tidy.py']).decode('utf-8').strip()
-        return run_clang_tidy
+        f = subprocess.check_output(['where', f'{filename}']).decode('utf-8').strip()
+        return f
     except subprocess.SubprocessError:
         return None
 
@@ -373,7 +373,8 @@ class VisualStudioSolution:
             path_prefix = cl_location[0:idx]
             if os.path.exists(f'{path_prefix}\\VC\\Tools\\LLVM\\bin\\clang-tidy.exe'):
                 clang_tidy = f'{path_prefix}\\VC\\Tools\\LLVM\\bin\\clang-tidy.exe'
-        run_clang_tidy = try_find_run_clang_tidy(self.source_dir)
+        run_clang_tidy = try_find_file(self.source_dir, 'run-clang-tidy.py')
+        clang_tidy_diff = try_find_file(self.source_dir, 'clang-tidy-diff.py') 
         self.clang_tidy_found = (Path(self.source_dir) / '.clang-tidy').exists() and clang_tidy != None
         if run_clang_tidy != None and self.clang_tidy_found:
             clang_tidy_proj = VcxProj("Clang-Tidy",
@@ -382,9 +383,19 @@ class VisualStudioSolution:
                             build_by_default=False,
                             is_run_target=True)
             self.vcxprojs.append(clang_tidy_proj)
-            # Binary has to be specified because VS does add the clang folder to PATH
+            # Binary has to be specified because VS doesn't add the clang folder to PATH
             # Add /E flag so that /showIncludes is redirected to stderr
             self.generate_run_proj(clang_tidy_proj, f'set PATH={os.path.dirname(clang_tidy)};%PATH% \n \"{sys.executable}\" \"{run_clang_tidy}\" -p=\"{self.build_dir}\" -extra-arg /E 2>NUL -q')
+        if run_clang_tidy != None and self.clang_tidy_found:
+            clang_tidy_diff_proj = VcxProj("Clang-Tidy-diff",
+                            "clang_tidy_diff",
+                            generate_guid_from_path(self.build_dir / 'clang-tidy-diff'),
+                            build_by_default=False,
+                            is_run_target=True)
+            self.vcxprojs.append(clang_tidy_diff_proj)
+            # Binary has to be specified because VS doesn't add the clang folder to PATH
+            # Add /E flag so that /showIncludes is redirected to stderr
+            self.generate_run_proj(clang_tidy_diff_proj, f'cd {self.source_dir} \n set PATH={os.path.dirname(clang_tidy)};%PATH% \n git diff -U0 HEAD^ | \"{sys.executable}\" \"{clang_tidy_diff}\" -p1 -build-path=\"{self.build_dir}\" -extra-arg /E 2>NUL')
         
         # Individual build targets
         for target in self.intro['targets']:
