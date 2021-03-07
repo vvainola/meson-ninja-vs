@@ -18,6 +18,7 @@ The build root then contains the Visual Studio solution with same name as the pr
 * Enable using wrapper exe for cl.exe.
 * Change Meson build options from Visual Studio GUI by changing "Reconfigure project" project properties.
 * Automatically add used headers from source directory to the projects.
+* Includes Clang-Tidy and Clang-Tidy-diff projects
 
 
 ## Known issues
