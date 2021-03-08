@@ -200,7 +200,7 @@ def get_headers(meson, intro):
         # multiple projects with same name in different folders
         target_proj = None
         for target_name, headers in target_headers.items():
-            if target_name in object_name:
+            if re.match(f'.*{target_name}.*[\\/].*', object_name):
                 target_proj = target_name
                 break
         if target_proj == None:
@@ -217,8 +217,9 @@ def get_headers(meson, intro):
         filt_headers = []
         for h in headers:
             try:
-                (build_dir/h).relative_to(source_dir)
-                filt_headers.append(h.absolute().resolve())
+                h_path = (build_dir/h).absolute().resolve()
+                if (source_dir / h_path.relative_to(source_dir)).exists():
+                    filt_headers.append(h.absolute().resolve())
             except ValueError:
                 pass
         filt_target_headers[target] = filt_headers
