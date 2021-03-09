@@ -372,10 +372,12 @@ class VisualStudioSolution:
         if clang_tidy == None:
             # Try check VS installation folder
             try:
-                idx = cl_location.index('VC\\Tools')
-                path_prefix = cl_location[0:idx]
-                if os.path.exists(f'{path_prefix}\\VC\\Tools\\LLVM\\bin\\clang-tidy.exe'):
-                    clang_tidy = f'{path_prefix}\\VC\\Tools\\LLVM\\bin\\clang-tidy.exe'
+                idx = cl_location.index('\\VC\\Tools')
+                path_prefix = cl_location[0:idx] + '\\VC\\Tools\\LLVM'
+                if (self.platform == 'x64'):
+                    path_prefix += '\\x64'
+                if os.path.exists(f'{path_prefix}\\bin\\clang-tidy.exe'):
+                    clang_tidy = f'{path_prefix}\\bin\\clang-tidy.exe'
             except ValueError:
                 pass
         run_clang_tidy = try_find_file(self.source_dir, 'run-clang-tidy.py')
