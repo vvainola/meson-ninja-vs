@@ -433,16 +433,9 @@ class VisualStudioSolution:
         proj_file.close()
 
     def generate_regen_proj(self, proj):
-        # Using additional inputs from another drive causes Visual Studio to always rebuild so use only ones that
-        # are on same drive as the build directory.
-        build_dir_drive = Path(self.build_dir / 'build.ninja').drive
-        additional_inputs = []
-        for file in self.intro['buildsystem_files']:
-            if Path(file).drive == build_dir_drive:
-                additional_inputs.append(file)
         proj_file = self.write_basic_custom_build(proj,
                                                   command=f'{sys.executable} {os.path.abspath(__file__)} --build_root {self.build_dir}',
-                                                  additional_inputs=";".join(additional_inputs),
+                                                  additional_inputs="build.ninja",
                                                   verify_io=True)
         proj_file.write('\t<ItemGroup>\n')
         proj_file.write(vs_dependency_tmpl.format(
