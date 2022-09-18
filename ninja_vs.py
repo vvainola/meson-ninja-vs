@@ -245,6 +245,20 @@ def get_introspect_files(build_dir):
         target['id'] = str(prefix / target['id'])
     return intro
 
+def get_meson_command(build_dir):
+    with open(Path(build_dir) / 'build.ninja', 'r') as f:
+        lines = f.readlines()
+        for i in range(len(lines)):
+            if lines[i] == "rule REGENERATE_BUILD\n":
+                command = lines[i + 1].split()
+                start = command.index("=") + 1
+                # Sometimes the --internal flag is quoted and sometimes not
+                for i in range(len(command)):
+                    if "--internal" in command[i]:
+                        end = i
+                        break
+                return " ".join(command[start:end])
+    raise Exception("Unable to find meson command from build.ninja")
 
 def run_reconfigure(build_dir):
     build_dir = Path(build_dir)
@@ -278,7 +292,7 @@ def run_reconfigure(build_dir):
         print(configure)
         print(subprocess.check_output(configure, cwd=build_dir).decode('utf-8').replace('\r', ''))
     print(
-        subprocess.check_output(f'{meson} compile --ninja-args=build.ninja', cwd=build_dir)
+        subprocess.check_output(f'ninja build.ninja', cwd=build_dir)
         .decode('utf-8')
         .replace('\r', '')
     )
@@ -456,7 +470,7 @@ class VisualStudioSolution:
                 rule.write(f'\t\t<Category Name="{category}" DisplayName="{category}" Description="" />\n')
         rule.write('\t</Rule.Categories>\n')
         for opt in self.intro['buildoptions']:
-            opt_name = opt['name'].replace('.', '__')
+            opt_name = opt['name'].replace('.', '__').replace(":", "-")
             opt_type = opt['type']
             category = opt['section']
             if opt_type == 'combo':
