@@ -32,7 +32,7 @@ import shutil
 import glob
 
 vs_header_tmpl = """<?xml version="1.0" ?>
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" InitialTargets="{initial_targets}" DefaultTargets="Build" ToolsVersion="4.0">
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" DefaultTargets="Build" ToolsVersion="4.0">
 \t<ItemGroup Label="ProjectConfigurations">
 \t\t<ProjectConfiguration Include="{configuration}|{platform}">
 \t\t\t<Configuration>{configuration}</Configuration>
@@ -98,10 +98,6 @@ vs_end_proj_tmpl = """\t<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"
 \t<ImportGroup Label="ExtensionTargets"/>
 </Project>"""
 
-vs_initial_target_tmpl = """\t<Target Name="{name}">
-\t\t<Exec Command={command}/>
-\t</Target>\n"""
-
 vs_start_filter = """<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 \t<ItemGroup>\n"""
@@ -121,7 +117,6 @@ vs_meson_options_rule = """<?xml version="1.0" encoding="utf-8"?>
 
 directory_guid = '{2150E333-8FDC-42A3-9474-1A3956D46DE8}'
 cpp_guid = '{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}'
-build_single_target = '.build_single_target'
 
 
 class BuildTarget:
@@ -154,6 +149,7 @@ class VcxProj:
         self.build_by_default = build_by_default
         self.is_run_target = is_run_target
         self.subdir = subdir
+
 
 def try_find_file(source_dir, filename):
     # check source dir
@@ -314,20 +310,6 @@ class VisualStudioSolution:
 
         self.headers = get_headers(self.intro)
 
-        # Hacky solution to enforce ninja building all targets. All other projects
-        # depend on prebuild solution which creates an empty file. Full Ninja build will
-        # delete this file in the beginning of its build. The individual builds have a delay
-        # and if the file is missing, the build of individual project is skipped.
-        self.solution_prebuild = VcxProj(
-            "Solution prebuild",
-            "Solution_prebuild",
-            generate_guid_from_path(self.build_dir / 'Solution prebuild'),
-            build_by_default=True,
-            is_run_target=True,
-            subdir=build_to_run_subdir,
-        )
-        self.vcxprojs.append(self.solution_prebuild)
-        self.generate_run_proj(self.solution_prebuild, f'copy NUL {build_single_target} > NUL')
         # Ninja target that handles building whole solution
         self.ninja_proj = VcxProj(
             "Ninja",
@@ -404,13 +386,9 @@ class VisualStudioSolution:
                 self.generate_build_proj(BuildTarget(target, guid, self.build_dir))
         self.generate_solution(self.intro['projectinfo']['descriptive_name'] + '.sln')
 
-    def write_basic_custom_build(self, proj, command, initial_targets="", additional_inputs="", verify_io=False):
+    def write_basic_custom_build(self, proj, command, additional_inputs="", verify_io=False):
         proj_file = open(f'{self.build_dir}/{proj.id}.vcxproj', 'w', encoding='utf-8')
-        proj_file.write(
-            vs_header_tmpl.format(
-                configuration=self.build_type, platform=self.platform, initial_targets=initial_targets
-            )
-        )
+        proj_file.write(vs_header_tmpl.format(configuration=self.build_type, platform=self.platform))
         proj_file.write(vs_globals_tmpl.format(guid=proj.guid, platform=self.platform, name=proj.name))
         proj_file.write(vs_config_tmpl.format(config_type="Utility"))
         proj_file.write(
@@ -427,16 +405,6 @@ class VisualStudioSolution:
                 verify_io=verify_io,
             )
         )
-        if proj != self.solution_prebuild:
-            proj_file.write('\t<ItemGroup>\n')
-            proj_file.write(
-                vs_dependency_tmpl.format(
-                    vcxproj_name=f'{self.build_dir}\\{self.solution_prebuild.id}.vcxproj',
-                    project_guid=self.solution_prebuild.guid,
-                    link_deps='false',
-                )
-            )
-            proj_file.write('\t</ItemGroup>\n')
         if not (self.build_dir / proj_contents).exists():
             if not (self.build_dir / proj_contents).parents[0].exists():
                 os.makedirs((self.build_dir / proj_contents).parents[0])
@@ -453,14 +421,7 @@ class VisualStudioSolution:
     def generate_ninja_proj(self, proj: VcxProj):
         proj_file = self.write_basic_custom_build(
             proj,
-            initial_targets="CancelParallelBuilds",
             command=f'ninja $(LocalDebuggerCommandArguments)',
-        )
-        proj_file.write(
-            vs_initial_target_tmpl.format(
-                name="CancelParallelBuilds",
-                command=f'\"if exist {build_single_target} (del {build_single_target})\"',
-            )
         )
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
@@ -536,9 +497,7 @@ class VisualStudioSolution:
 
     def generate_build_proj(self, target: BuildTarget):
         proj_file = open(f'{self.build_dir}/{target.id}.vcxproj', 'w', encoding='utf-8')
-        proj_file.write(
-            vs_header_tmpl.format(initial_targets="", configuration=self.build_type, platform=self.platform)
-        )
+        proj_file.write(vs_header_tmpl.format(configuration=self.build_type, platform=self.platform))
         proj_file.write(vs_globals_tmpl.format(guid=target.guid, name=target.name, platform=self.platform))
 
         # NMake
@@ -553,13 +512,11 @@ class VisualStudioSolution:
                 preprocessor_macros.append(par[2:])
             else:
                 additional_options.append(par)
-        sleep = 'powershell -nop -c "&amp; {sleep -m 500}"'
         compile = f'ninja -C &quot;{self.build_dir}&quot;'
-        check_if_ninja_already_running = f'if not exist &quot;{self.build_dir}\\{build_single_target}&quot; (exit /b 0)'
         proj_file.write(
             vs_nmake_tmpl.format(
                 output=target.output,
-                build_cmd=f'{check_if_ninja_already_running}\n {compile} &quot;{target.output}&quot;',
+                build_cmd=f'{compile} &quot;{target.output}&quot;',
                 clean_cmd=f'{compile} clean',
                 rebuild_cmd=f'{compile} clean \n {compile} &quot;{target.output}&quot;',
                 includes=";".join(include_paths),
@@ -575,16 +532,6 @@ class VisualStudioSolution:
                 f'\t\t\t<AdditionalIncludeDirectories>{";".join(include_paths)}</AdditionalIncludeDirectories>\n'
             )
             proj_file.write(f'\t\t</ClCompile>\n')
-        proj_file.write('\t</ItemGroup>\n')
-        # Dependencies
-        proj_file.write('\t<ItemGroup>\n')
-        proj_file.write(
-            vs_dependency_tmpl.format(
-                vcxproj_name=f'{self.build_dir}\\{self.solution_prebuild.id}.vcxproj',
-                project_guid=self.solution_prebuild.guid,
-                link_deps='false',
-            )
-        )
         proj_file.write('\t</ItemGroup>\n')
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
@@ -651,7 +598,7 @@ class VisualStudioSolution:
             sln.write(
                 f'\t\t{{{proj.guid}}}.{self.build_type}|{self.platform}.ActiveCfg = {self.build_type}|{self.platform}\n'
             )
-            if proj.build_by_default:
+            if proj == self.regen_proj or proj == self.ninja_proj:
                 sln.write(
                     f'\t\t{{{proj.guid}}}.{self.build_type}|{self.platform}.Build.0 = {self.build_type}|{self.platform}\n'
                 )
