@@ -366,43 +366,6 @@ class VisualStudioSolution:
                                         is_run_target=True)
         self.vcxprojs.append(self.reconfigure_proj)
         self.generate_reconfigure_proj(self.reconfigure_proj)
-        # Clang-Tidy
-        # Try find from PATH
-        clang_tidy = shutil.which('clang-tidy')
-        if clang_tidy == None:
-            # Try check VS installation folder
-            try:
-                idx = cl_location.index('\\VC\\Tools')
-                path_prefix = cl_location[0:idx] + '\\VC\\Tools\\LLVM'
-                if (self.platform == 'x64'):
-                    path_prefix += '\\x64'
-                if os.path.exists(f'{path_prefix}\\bin\\clang-tidy.exe'):
-                    clang_tidy = f'{path_prefix}\\bin\\clang-tidy.exe'
-            except ValueError:
-                pass
-        run_clang_tidy = try_find_file(self.source_dir, 'run-clang-tidy.py')
-        clang_tidy_diff = try_find_file(self.source_dir, 'clang-tidy-diff.py') 
-        self.clang_tidy_found = (Path(self.source_dir) / '.clang-tidy').exists() and clang_tidy != None
-        if run_clang_tidy != "None" and self.clang_tidy_found:
-            clang_tidy_proj = VcxProj("Clang-Tidy",
-                            "clang_tidy",
-                            generate_guid_from_path(self.build_dir / 'clang-tidy'),
-                            build_by_default=False,
-                            is_run_target=True)
-            self.vcxprojs.append(clang_tidy_proj)
-            # Binary has to be specified because VS doesn't add the clang folder to PATH
-            # Add /E flag so that /showIncludes is redirected to stderr
-            self.generate_run_proj(clang_tidy_proj, f'set PATH={os.path.dirname(clang_tidy)};%PATH% \n \"{sys.executable}\" \"{run_clang_tidy}\" -p=\"{self.build_dir}\" -extra-arg /E 2>NUL -q')
-        if clang_tidy_diff != "None" and self.clang_tidy_found:
-            clang_tidy_diff_proj = VcxProj("Clang-Tidy-diff",
-                            "clang_tidy_diff",
-                            generate_guid_from_path(self.build_dir / 'clang-tidy-diff'),
-                            build_by_default=False,
-                            is_run_target=True)
-            self.vcxprojs.append(clang_tidy_diff_proj)
-            # Binary has to be specified because VS doesn't add the clang folder to PATH
-            # Add /E flag so that /showIncludes is redirected to stderr
-            self.generate_run_proj(clang_tidy_diff_proj, f'cd {self.source_dir} \n set PATH={os.path.dirname(clang_tidy)};%PATH% \n git diff -U0 HEAD^ | \"{sys.executable}\" \"{clang_tidy_diff}\" -p1 -build-path=\"{self.build_dir}\" -extra-arg /E 2>NUL')
         
         # Individual build targets
         for target in self.intro['targets']:
@@ -544,10 +507,6 @@ class VisualStudioSolution:
             guid=target.guid,
             name=target.name,
             platform=self.platform))
-        if self.clang_tidy_found:
-            proj_file.write("\t<PropertyGroup>\n")
-            proj_file.write("\t\t<EnableClangTidyCodeAnalysis>true</EnableClangTidyCodeAnalysis>\n")
-            proj_file.write("\t</PropertyGroup>\n")
 
         # NMake
         proj_file.write(vs_config_tmpl.format(config_type="MakeFile"))
