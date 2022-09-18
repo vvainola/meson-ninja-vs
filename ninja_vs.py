@@ -125,7 +125,7 @@ build_single_target = '.build_single_target'
 
 
 class BuildTarget:
-    def __init__(self, intro_target, guid):
+    def __init__(self, intro_target, guid, build_dir):
         self.name = intro_target['name']
         self.id = intro_target['id']
         self.guid = guid
@@ -141,7 +141,7 @@ class BuildTarget:
             self.parameters.extend(target_sources['parameters'])
         self.extra_files = intro_target.get('extra_files', [])
         if len(intro_target['filename']) == 1:
-            self.output = intro_target['filename'][0]
+            self.output = os.path.relpath(intro_target['filename'][0], build_dir)
         else:
             self.output = ""
 
@@ -155,23 +155,6 @@ class VcxProj:
         self.is_run_target = is_run_target
         self.subdir = subdir
 
-
-def get_meson_command(build_dir):
-    with open(Path(build_dir) / 'build.ninja', 'r') as f:
-        lines = f.readlines()
-        for i in range(len(lines)):
-            if lines[i] == "rule REGENERATE_BUILD\n":
-                command = lines[i + 1].split()
-                start = command.index("=") + 1
-                # Sometimes the --internal flag is quoted and sometimes not
-                for i in range(len(command)):
-                    if "--internal" in command[i]:
-                        end = i
-                        break
-                return " ".join(command[start:end])
-    raise Exception("Unable to find meson command from build.ninja")
-
-
 def try_find_file(source_dir, filename):
     # check source dir
     for f in glob.glob(f'{source_dir}/**/{filename}', recursive=True):
@@ -184,18 +167,16 @@ def try_find_file(source_dir, filename):
         return "None"
 
 
-def get_headers(meson, intro):
+def get_headers(intro):
     build_dir = Path(intro['meson_info']['directories']['build'])
     source_dir = Path(intro['meson_info']['directories']['source'])
     targets = intro['targets']
     target_headers = {}
     for target in targets:
         target_headers[f'{target["name"]}'] = set()
-    # Remove extra quotes
-    meson = meson.replace('\"', '')
     # Ask list of headers used in object from ninja
     object_deps = (
-        subprocess.check_output(meson.split() + ['compile', '-C', build_dir, '--ninja-args=-t,deps'])
+        subprocess.check_output(['ninja', '-C', build_dir, '-t', 'deps'])
         .decode('utf-8')
         .replace('\r', '\n')
         .strip()
@@ -291,7 +272,7 @@ def run_reconfigure(build_dir):
         opt_value = re.search("(?<=(>)).*(?=(</))", opt)
         if opt_name is None or opt_value is None:
             continue
-        opt_name = opt_name.group(0).replace("__", ".")
+        opt_name = opt_name.group(0).replace("__", ".").replace("-", ":")
         opt_value = opt_value.group(0)
         if opt_value != str(buildoptions[opt_name]['value']):
             changed_options.append(f'-D{opt_name}=\"{opt_value}\"')
@@ -331,8 +312,7 @@ class VisualStudioSolution:
         build_to_run_subdir = "Build to run"
         self.subdirs.add(build_to_run_subdir)
 
-        self.meson = get_meson_command(self.build_dir)
-        self.headers = get_headers(self.meson, self.intro)
+        self.headers = get_headers(self.intro)
 
         # Hacky solution to enforce ninja building all targets. All other projects
         # depend on prebuild solution which creates an empty file. Full Ninja build will
@@ -369,7 +349,7 @@ class VisualStudioSolution:
             subdir=build_to_run_subdir,
         )
         self.vcxprojs.append(install_proj)
-        self.generate_run_proj(install_proj, f'{self.meson} install')
+        self.generate_run_proj(install_proj, f'ninja install')
         # Run tests
         test_proj = VcxProj(
             "Run tests",
@@ -380,7 +360,7 @@ class VisualStudioSolution:
             subdir=build_to_run_subdir,
         )
         self.vcxprojs.append(test_proj)
-        self.generate_run_proj(test_proj, f'{self.meson} test')
+        self.generate_run_proj(test_proj, f'ninja test')
         # Regen
         self.regen_proj = VcxProj(
             "Regenerate solution",
@@ -419,9 +399,9 @@ class VisualStudioSolution:
             )
             self.vcxprojs.append(vcxproj)
             if vcxproj.is_run_target:
-                self.generate_run_proj(vcxproj, f'{self.meson} compile {target["name"]}')
+                self.generate_run_proj(vcxproj, f'ninja {target["name"]}')
             else:
-                self.generate_build_proj(BuildTarget(target, guid))
+                self.generate_build_proj(BuildTarget(target, guid, self.build_dir))
         self.generate_solution(self.intro['projectinfo']['descriptive_name'] + '.sln')
 
     def write_basic_custom_build(self, proj, command, initial_targets="", additional_inputs="", verify_io=False):
@@ -474,7 +454,7 @@ class VisualStudioSolution:
         proj_file = self.write_basic_custom_build(
             proj,
             initial_targets="CancelParallelBuilds",
-            command=f'{self.meson} compile' + " $(LocalDebuggerCommandArguments)",
+            command=f'ninja $(LocalDebuggerCommandArguments)',
         )
         proj_file.write(
             vs_initial_target_tmpl.format(
@@ -540,11 +520,12 @@ class VisualStudioSolution:
 
         # Create the project file
         proj_file = self.write_basic_custom_build(
-            proj, command=f'{sys.executable} {os.path.abspath(__file__)} --reconfigure --build_root=&quot;{self.build_dir}&quot;'
+            proj,
+            command=f'{sys.executable} {os.path.abspath(__file__)} --reconfigure --build_root=&quot;{self.build_dir}&quot;',
         )
         proj_file.write('\t<PropertyGroup>\n')
         for opt in self.intro['buildoptions']:
-            opt_name = opt["name"].replace(".", "__")
+            opt_name = opt["name"].replace(".", "__").replace(":", "-")
             proj_file.write(f'\t\t<meson_{opt_name}>{opt["value"]}</meson_{opt_name}>\n')
         proj_file.write('\t\t<UseDefaultPropertyPageSchemas>false</UseDefaultPropertyPageSchemas>')
         proj_file.write('\t</PropertyGroup>\n')
@@ -572,15 +553,15 @@ class VisualStudioSolution:
                 preprocessor_macros.append(par[2:])
             else:
                 additional_options.append(par)
-        sleep = 'powershell -nop -c "&amp; {sleep -m 200}"'
-        compile = f'{self.meson} compile -C &quot;{self.build_dir}&quot;'
+        sleep = 'powershell -nop -c "&amp; {sleep -m 500}"'
+        compile = f'ninja -C &quot;{self.build_dir}&quot;'
         check_if_ninja_already_running = f'if not exist &quot;{self.build_dir}\\{build_single_target}&quot; (exit /b 0)'
         proj_file.write(
             vs_nmake_tmpl.format(
                 output=target.output,
-                build_cmd=f'{sleep} \n {check_if_ninja_already_running}\n {compile} {target.name}',
-                clean_cmd=f'{compile} --clean',
-                rebuild_cmd=f'{compile} --clean \n {compile} {target.name}',
+                build_cmd=f'{check_if_ninja_already_running}\n {compile} &quot;{target.output}&quot;',
+                clean_cmd=f'{compile} clean',
+                rebuild_cmd=f'{compile} clean \n {compile} &quot;{target.output}&quot;',
                 includes=";".join(include_paths),
                 preprocessor_macros=";".join(preprocessor_macros),
                 additional_options=" ".join(additional_options),
@@ -633,13 +614,32 @@ class VisualStudioSolution:
             sln.write(f'Project("{cpp_guid}") = "{proj.name}", "{proj.id}.vcxproj", "{{{proj.guid}}}"\n')
             sln.write('EndProject\n')
         # Targets in correct subfolder
-        self.subdir_guids = {}
-        for subdir in self.subdirs:
-            if subdir == '':
+        subdir_guids = {}
+        subsubdir_parents = {}
+        expanded_subdirs = set()
+        for dir in self.subdirs:
+            dir = dir
+            if dir == '':
                 continue
-            guid = generate_guid()
-            self.subdir_guids[subdir] = guid
-            sln.write(f'Project("{directory_guid}") = "{subdir}", "{subdir}", "{{{guid}}}"\n')
+            split_dir = dir.split('\\')
+            base = split_dir[0]
+            if len(split_dir) > 1:
+                expanded_subdirs.add(base)
+                parent = base
+                for i in range(1, len(split_dir)):
+                    sub = base
+                    for j in range(1, i + 1):
+                        sub += "\\" + split_dir[j]
+                    expanded_subdirs.add(sub)
+                    subsubdir_parents[sub] = parent
+                    parent = sub
+            else:
+                expanded_subdirs.add(dir)
+        for dir in expanded_subdirs:
+            guid = generate_guid_from_path(dir)
+            subdir_guids[dir] = guid
+            dirname = dir.split('\\')[-1]
+            sln.write(f'Project("{directory_guid}") = "{dirname}", "{dirname}", "{{{guid}}}"\n')
             sln.write('EndProject\n')
         sln.write('Global\n')
         sln.write('\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n')
@@ -661,7 +661,9 @@ class VisualStudioSolution:
         sln.write('\tGlobalSection(NestedProjects) = preSolution\n')
         for proj in self.vcxprojs:
             if proj.subdir != '':
-                sln.write(f'\t\t{{{proj.guid}}} = {{{self.subdir_guids[proj.subdir]}}}\n')
+                sln.write(f'\t\t{{{proj.guid}}} = {{{subdir_guids[proj.subdir]}}}\n')
+        for subdir, parent in subsubdir_parents.items():
+            sln.write(f'\t\t{{{subdir_guids[str(subdir)]}}} = {{{subdir_guids[str(parent)]}}}\n')
         sln.write('\tEndGlobalSection\n')
 
         sln.write('\tGlobalSection(SolutionProperties) = preSolution\n')
