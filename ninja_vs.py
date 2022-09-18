@@ -347,7 +347,7 @@ class VisualStudioSolution:
             subdir=build_to_run_subdir,
         )
         self.vcxprojs.append(self.solution_prebuild)
-        self.generate_run_proj(self.solution_prebuild, f'copy NUL {self.build_dir}\\{build_single_target} > NUL')
+        self.generate_run_proj(self.solution_prebuild, f'copy NUL {build_single_target} > NUL')
         # Ninja target that handles building whole solution
         self.ninja_proj = VcxProj(
             "Ninja",
@@ -479,7 +479,7 @@ class VisualStudioSolution:
         proj_file.write(
             vs_initial_target_tmpl.format(
                 name="CancelParallelBuilds",
-                command=f'\"if exist {self.build_dir}\\{build_single_target} (del {self.build_dir}\\{build_single_target})\"',
+                command=f'\"if exist {build_single_target} (del {build_single_target})\"',
             )
         )
         proj_file.write(vs_end_proj_tmpl)
@@ -488,7 +488,7 @@ class VisualStudioSolution:
     def generate_regen_proj(self, proj):
         proj_file = self.write_basic_custom_build(
             proj,
-            command=f'{sys.executable} {os.path.abspath(__file__)} --build_root {self.build_dir}',
+            command=f'{sys.executable} {os.path.abspath(__file__)} --build_root &quot;{self.build_dir}&quot;',
             additional_inputs="build.ninja",
             verify_io=True,
         )
@@ -540,7 +540,7 @@ class VisualStudioSolution:
 
         # Create the project file
         proj_file = self.write_basic_custom_build(
-            proj, command=f'{sys.executable} {os.path.abspath(__file__)} --reconfigure --build_root={self.build_dir}'
+            proj, command=f'{sys.executable} {os.path.abspath(__file__)} --reconfigure --build_root=&quot;{self.build_dir}&quot;'
         )
         proj_file.write('\t<PropertyGroup>\n')
         for opt in self.intro['buildoptions']:
@@ -573,8 +573,8 @@ class VisualStudioSolution:
             else:
                 additional_options.append(par)
         sleep = 'powershell -nop -c "&amp; {sleep -m 200}"'
-        compile = f'{self.meson} compile -C {self.build_dir}'
-        check_if_ninja_already_running = f'if not exist {self.build_dir}\\{build_single_target} (exit /b 0)'
+        compile = f'{self.meson} compile -C &quot;{self.build_dir}&quot;'
+        check_if_ninja_already_running = f'if not exist &quot;{self.build_dir}\\{build_single_target}&quot; (exit /b 0)'
         proj_file.write(
             vs_nmake_tmpl.format(
                 output=target.output,
