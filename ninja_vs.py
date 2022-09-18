@@ -30,6 +30,7 @@ import json
 import uuid
 import shutil
 import glob
+
 vs_header_tmpl = """<?xml version="1.0" ?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" InitialTargets="{initial_targets}" DefaultTargets="Build" ToolsVersion="4.0">
 \t<ItemGroup Label="ProjectConfigurations">
@@ -53,7 +54,7 @@ vs_globals_tmpl = """\t<PropertyGroup Label="Globals">
 \t<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>\n"""
 
 vs_config_tmpl = """\t<PropertyGroup Label="Configuration">
-\t\t<PlatformToolset>v142</PlatformToolset>
+\t\t<PlatformToolset>v143</PlatformToolset>
 \t\t<ConfigurationType>{config_type}</ConfigurationType>
 \t</PropertyGroup>
 \t<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/>\n"""
@@ -146,12 +147,13 @@ class BuildTarget:
 
 
 class VcxProj:
-    def __init__(self, name, id, guid, build_by_default, is_run_target):
+    def __init__(self, name, id, guid, build_by_default, is_run_target, subdir=''):
         self.name = name
         self.id = id
         self.guid = guid
         self.build_by_default = build_by_default
         self.is_run_target = is_run_target
+        self.subdir = subdir
 
 
 def get_meson_command(build_dir):
@@ -159,7 +161,7 @@ def get_meson_command(build_dir):
         lines = f.readlines()
         for i in range(len(lines)):
             if lines[i] == "rule REGENERATE_BUILD\n":
-                command = lines[i+1].split()
+                command = lines[i + 1].split()
                 start = command.index("=") + 1
                 # Sometimes the --internal flag is quoted and sometimes not
                 for i in range(len(command)):
@@ -168,6 +170,7 @@ def get_meson_command(build_dir):
                         break
                 return " ".join(command[start:end])
     raise Exception("Unable to find meson command from build.ninja")
+
 
 def try_find_file(source_dir, filename):
     # check source dir
@@ -180,6 +183,7 @@ def try_find_file(source_dir, filename):
     except subprocess.SubprocessError:
         return "None"
 
+
 def get_headers(meson, intro):
     build_dir = Path(intro['meson_info']['directories']['build'])
     source_dir = Path(intro['meson_info']['directories']['source'])
@@ -190,7 +194,13 @@ def get_headers(meson, intro):
     # Remove extra quotes
     meson = meson.replace('\"', '')
     # Ask list of headers used in object from ninja
-    object_deps = subprocess.check_output(meson.split() + ['compile', '-C', build_dir, '--ninja-args=-t,deps']).decode('utf-8').replace('\r', '\n').strip().split('\n\n\n\n')
+    object_deps = (
+        subprocess.check_output(meson.split() + ['compile', '-C', build_dir, '--ninja-args=-t,deps'])
+        .decode('utf-8')
+        .replace('\r', '\n')
+        .strip()
+        .split('\n\n\n\n')
+    )
     for dep in object_deps:
         object_name = re.match('^.*(?=: )', dep)
         if object_name == None:
@@ -217,7 +227,7 @@ def get_headers(meson, intro):
         filt_headers = []
         for h in headers:
             try:
-                h_path = (build_dir/h).absolute().resolve()
+                h_path = (build_dir / h).absolute().resolve()
                 if (source_dir / h_path.relative_to(source_dir)).exists():
                     filt_headers.append(h.absolute().resolve())
             except ValueError:
@@ -247,7 +257,7 @@ def get_introspect_files(build_dir):
     intro['tests'] = prefix / 'intro-tests.json'
     intro['meson_info'] = prefix / 'meson-info.json'
     for key, path in intro.items():
-        if not(path.exists()):
+        if not (path.exists()):
             raise Exception(f"Introspect data {path} missing!. Unable to generate Visual Studio solutions.")
         intro[key] = json.load(open(intro[key]))
     # Modify build target ids so that the VS projects are created in correct subfolder
@@ -277,8 +287,12 @@ def run_reconfigure(build_dir):
     proj_options = proj_options.group(0).split('\n')
     changed_options = []
     for opt in proj_options:
-        opt_name = re.search("(?<=(</meson_)).*(?=(>))", opt).group(0).replace("__", ".")
-        opt_value = re.search("(?<=(>)).*(?=(</))", opt).group(0)
+        opt_name = re.search("(?<=(</meson_)).*(?=(>))", opt)
+        opt_value = re.search("(?<=(>)).*(?=(</))", opt)
+        if opt_name is None or opt_value is None:
+            continue
+        opt_name = opt_name.group(0).replace("__", ".")
+        opt_value = opt_value.group(0)
         if opt_value != str(buildoptions[opt_name]['value']):
             changed_options.append(f'-D{opt_name}=\"{opt_value}\"')
     meson = get_meson_command(build_dir)
@@ -286,14 +300,17 @@ def run_reconfigure(build_dir):
         configure = f'{meson} configure {" ".join(changed_options)}'
         print(configure)
         print(subprocess.check_output(configure, cwd=build_dir).decode('utf-8').replace('\r', ''))
-    src_dir = intro['meson_info']['directories']['source']
-    print(subprocess.check_output(f'{meson} compile --ninja-args=build.ninja', cwd=build_dir).decode('utf-8').replace('\r', ''))
+    print(
+        subprocess.check_output(f'{meson} compile --ninja-args=build.ninja', cwd=build_dir)
+        .decode('utf-8')
+        .replace('\r', '')
+    )
 
 
 class VisualStudioSolution:
     def __init__(self, build_dir):
         self.build_dir = Path(build_dir)
-        if not(Path(build_dir).is_absolute()):
+        if not (Path(build_dir).is_absolute()):
             self.build_dir = self.build_dir.absolute()
         cl_location = shutil.which('cl')
         if cl_location == None:
@@ -310,6 +327,9 @@ class VisualStudioSolution:
             if option['name'] == 'buildtype':
                 self.build_type = option['value']
         self.source_dir = self.intro['meson_info']['directories']['source']
+        self.subdirs = set()
+        build_to_run_subdir = "Build to run"
+        self.subdirs.add(build_to_run_subdir)
 
         self.meson = get_meson_command(self.build_dir)
         self.headers = get_headers(self.meson, self.intro)
@@ -318,59 +338,85 @@ class VisualStudioSolution:
         # depend on prebuild solution which creates an empty file. Full Ninja build will
         # delete this file in the beginning of its build. The individual builds have a delay
         # and if the file is missing, the build of individual project is skipped.
-        self.solution_prebuild = VcxProj("Solution prebuild",
-                                         "Solution_prebuild",
-                                         generate_guid_from_path(self.build_dir / 'Solution prebuild'),
-                                         build_by_default=True,
-                                         is_run_target=True)
+        self.solution_prebuild = VcxProj(
+            "Solution prebuild",
+            "Solution_prebuild",
+            generate_guid_from_path(self.build_dir / 'Solution prebuild'),
+            build_by_default=True,
+            is_run_target=True,
+            subdir=build_to_run_subdir,
+        )
         self.vcxprojs.append(self.solution_prebuild)
-        self.generate_run_proj(self.solution_prebuild,
-                               f'copy NUL {self.build_dir}\\{build_single_target} > NUL')
+        self.generate_run_proj(self.solution_prebuild, f'copy NUL {self.build_dir}\\{build_single_target} > NUL')
         # Ninja target that handles building whole solution
-        self.ninja_proj = VcxProj("Ninja",
-                                  "Ninja",
-                                  generate_guid_from_path(self.build_dir / 'ninja'),
-                                  build_by_default=True,
-                                  is_run_target=True)
+        self.ninja_proj = VcxProj(
+            "Ninja",
+            "Ninja",
+            generate_guid_from_path(self.build_dir / 'ninja'),
+            build_by_default=True,
+            is_run_target=True,
+            subdir=build_to_run_subdir,
+        )
         self.vcxprojs.append(self.ninja_proj)
         self.generate_ninja_proj(self.ninja_proj)
         # Install
-        install_proj = VcxProj("Run install",
-                               "Run_install",
-                               generate_guid_from_path(self.build_dir / 'install'),
-                               build_by_default=False,
-                               is_run_target=True)
+        install_proj = VcxProj(
+            "Run install",
+            "Run_install",
+            generate_guid_from_path(self.build_dir / 'install'),
+            build_by_default=False,
+            is_run_target=True,
+            subdir=build_to_run_subdir,
+        )
         self.vcxprojs.append(install_proj)
         self.generate_run_proj(install_proj, f'{self.meson} install')
         # Run tests
-        test_proj = VcxProj("Run tests",
-                            "Run_tests",
-                            generate_guid_from_path(self.build_dir / 'tests'),
-                            build_by_default=False,
-                            is_run_target=True)
+        test_proj = VcxProj(
+            "Run tests",
+            "Run_tests",
+            generate_guid_from_path(self.build_dir / 'tests'),
+            build_by_default=False,
+            is_run_target=True,
+            subdir=build_to_run_subdir,
+        )
         self.vcxprojs.append(test_proj)
         self.generate_run_proj(test_proj, f'{self.meson} test')
         # Regen
-        self.regen_proj = VcxProj("Regenerate solution",
-                                  "Regenerate_solution",
-                                  generate_guid_from_path(self.build_dir / 'regen'),
-                                  build_by_default=True,
-                                  is_run_target=True)
+        self.regen_proj = VcxProj(
+            "Regenerate solution",
+            "Regenerate_solution",
+            generate_guid_from_path(self.build_dir / 'regen'),
+            build_by_default=True,
+            is_run_target=True,
+            subdir=build_to_run_subdir,
+        )
         self.vcxprojs.append(self.regen_proj)
         self.generate_regen_proj(self.regen_proj)
         # Reconfigure
-        self.reconfigure_proj = VcxProj("Reconfigure project",
-                                        "Reconfigure_project",
-                                        generate_guid_from_path(self.build_dir / 'reconfigure'),
-                                        build_by_default=False,
-                                        is_run_target=True)
+        self.reconfigure_proj = VcxProj(
+            "Reconfigure project",
+            "Reconfigure_project",
+            generate_guid_from_path(self.build_dir / 'reconfigure'),
+            build_by_default=False,
+            is_run_target=True,
+            subdir=build_to_run_subdir,
+        )
         self.vcxprojs.append(self.reconfigure_proj)
         self.generate_reconfigure_proj(self.reconfigure_proj)
-        
+
         # Individual build targets
         for target in self.intro['targets']:
+            subdir = os.path.dirname(os.path.relpath(target['defined_in'], self.source_dir))
+            self.subdirs.add(subdir)
             guid = generate_guid_from_path(self.build_dir / target['id'])
-            vcxproj = VcxProj(target['name'], target['id'], guid, build_by_default=target['build_by_default'], is_run_target=target['type'] == 'run')
+            vcxproj = VcxProj(
+                target['name'],
+                target['id'],
+                guid,
+                build_by_default=target['build_by_default'],
+                is_run_target=target['type'] == 'run',
+                subdir=subdir,
+            )
             self.vcxprojs.append(vcxproj)
             if vcxproj.is_run_target:
                 self.generate_run_proj(vcxproj, f'{self.meson} compile {target["name"]}')
@@ -380,68 +426,76 @@ class VisualStudioSolution:
 
     def write_basic_custom_build(self, proj, command, initial_targets="", additional_inputs="", verify_io=False):
         proj_file = open(f'{self.build_dir}/{proj.id}.vcxproj', 'w', encoding='utf-8')
-        proj_file.write(vs_header_tmpl.format(
-            configuration=self.build_type,
-            platform=self.platform,
-            initial_targets=initial_targets))
-        proj_file.write(vs_globals_tmpl.format(
-            guid=proj.guid,
-            platform=self.platform,
-            name=proj.name))
-        proj_file.write(vs_config_tmpl.format(
-            config_type="Utility"))
-        proj_file.write(vs_propertygrp_tmpl.format(
-            out_dir='.\\',
-            intermediate_dir=f'{proj.id}_temp\\',
-            output=f'{proj.id}'))
-        proj_contents = self.build_dir / 'meson-private' / f'always_rebuild_{proj.id}.rule'
-        proj_output = self.build_dir / 'meson-private' / f'always_rebuild_{proj.id}.out'
-        proj_file.write(vs_custom_itemgroup_tmpl.format(
-            command=command,
-            additional_inputs=additional_inputs,
-            out_file=proj_output,
-            contents=str(proj_contents),
-            verify_io=verify_io))
+        proj_file.write(
+            vs_header_tmpl.format(
+                configuration=self.build_type, platform=self.platform, initial_targets=initial_targets
+            )
+        )
+        proj_file.write(vs_globals_tmpl.format(guid=proj.guid, platform=self.platform, name=proj.name))
+        proj_file.write(vs_config_tmpl.format(config_type="Utility"))
+        proj_file.write(
+            vs_propertygrp_tmpl.format(out_dir='.\\', intermediate_dir=f'{proj.id}_temp\\', output=f'{proj.id}')
+        )
+        proj_contents = f'meson-private\\always_rebuild_{proj.id}.rule'
+        proj_output = f'meson-private\\always_rebuild_{proj.id}.out'
+        proj_file.write(
+            vs_custom_itemgroup_tmpl.format(
+                command=command,
+                additional_inputs=additional_inputs,
+                out_file=proj_output,
+                contents=proj_contents,
+                verify_io=verify_io,
+            )
+        )
         if proj != self.solution_prebuild:
             proj_file.write('\t<ItemGroup>\n')
-            proj_file.write(vs_dependency_tmpl.format(
-                vcxproj_name=f'{self.build_dir}\\{self.solution_prebuild.id}.vcxproj',
-                project_guid=self.solution_prebuild.guid,
-                link_deps='false'))
+            proj_file.write(
+                vs_dependency_tmpl.format(
+                    vcxproj_name=f'{self.build_dir}\\{self.solution_prebuild.id}.vcxproj',
+                    project_guid=self.solution_prebuild.guid,
+                    link_deps='false',
+                )
+            )
             proj_file.write('\t</ItemGroup>\n')
-        if not(proj_contents.exists()):
+        if not (self.build_dir / proj_contents).exists():
             open(proj_contents, 'w', encoding='utf-8').close()
         if verify_io:
-            open(proj_output, 'w', encoding='utf-8').close()
+            open(self.build_dir / proj_output, 'w', encoding='utf-8').close()
         return proj_file
 
     def generate_run_proj(self, proj: VcxProj, cmd):
-        proj_file = self.write_basic_custom_build(proj,
-                                                  command=cmd + " $(LocalDebuggerCommandArguments)")
+        proj_file = self.write_basic_custom_build(proj, command=cmd + " $(LocalDebuggerCommandArguments)")
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
 
     def generate_ninja_proj(self, proj: VcxProj):
-        proj_file = self.write_basic_custom_build(proj,
-                                                  initial_targets="CancelParallelBuilds",
-                                                  command=f'{self.meson} compile' + " $(LocalDebuggerCommandArguments)")
-        proj_file.write(vs_initial_target_tmpl.format(
-            name="CancelParallelBuilds",
-            command=f'\"if exist {self.build_dir}\\{build_single_target} (del {self.build_dir}\\{build_single_target})\"'
-        ))
+        proj_file = self.write_basic_custom_build(
+            proj,
+            initial_targets="CancelParallelBuilds",
+            command=f'{self.meson} compile' + " $(LocalDebuggerCommandArguments)",
+        )
+        proj_file.write(
+            vs_initial_target_tmpl.format(
+                name="CancelParallelBuilds",
+                command=f'\"if exist {self.build_dir}\\{build_single_target} (del {self.build_dir}\\{build_single_target})\"',
+            )
+        )
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
 
     def generate_regen_proj(self, proj):
-        proj_file = self.write_basic_custom_build(proj,
-                                                  command=f'{sys.executable} {os.path.abspath(__file__)} --build_root {self.build_dir}',
-                                                  additional_inputs="build.ninja",
-                                                  verify_io=True)
+        proj_file = self.write_basic_custom_build(
+            proj,
+            command=f'{sys.executable} {os.path.abspath(__file__)} --build_root {self.build_dir}',
+            additional_inputs="build.ninja",
+            verify_io=True,
+        )
         proj_file.write('\t<ItemGroup>\n')
-        proj_file.write(vs_dependency_tmpl.format(
-            vcxproj_name=f'{self.ninja_proj.id}.vcxproj',
-            project_guid=self.ninja_proj.guid,
-            link_deps='false'))
+        proj_file.write(
+            vs_dependency_tmpl.format(
+                vcxproj_name=f'{self.ninja_proj.id}.vcxproj', project_guid=self.ninja_proj.guid, link_deps='false'
+            )
+        )
         proj_file.write('\t</ItemGroup>\n')
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
@@ -463,22 +517,29 @@ class VisualStudioSolution:
             opt_type = opt['type']
             category = opt['section']
             if opt_type == 'combo':
-                rule.write(f'\t<EnumProperty Name="meson_{opt_name}" DisplayName="{opt["name"]}" Description="{opt["description"]}" Category="{category}">\n')
+                rule.write(
+                    f'\t<EnumProperty Name="meson_{opt_name}" DisplayName="{opt["name"]}" Description="{opt["description"]}" Category="{category}">\n'
+                )
                 for choice in opt["choices"]:
                     rule.write(f'\t\t<EnumValue Name="{choice}" DisplayName="{choice}"/>\n')
                 rule.write(f'\t</EnumProperty>\n')
             elif opt_type == 'boolean':
-                rule.write(f'\t<EnumProperty Name="meson_{opt_name}" DisplayName="{opt["name"]}" Description="{opt["description"]}" Category="{category}">\n')
+                rule.write(
+                    f'\t<EnumProperty Name="meson_{opt_name}" DisplayName="{opt["name"]}" Description="{opt["description"]}" Category="{category}">\n'
+                )
                 rule.write(f'\t\t<EnumValue Name="True" DisplayName="True"/>\n')
                 rule.write(f'\t\t<EnumValue Name="False" DisplayName="False"/>\n')
                 rule.write(f'\t</EnumProperty>\n')
             else:
-                rule.write(f'\t<StringProperty Name="meson_{opt_name}" DisplayName="{opt["name"]}" Category="{category}"/>\n')
+                rule.write(
+                    f'\t<StringProperty Name="meson_{opt_name}" DisplayName="{opt["name"]}" Category="{category}"/>\n'
+                )
         rule.write('</Rule>')
 
         # Create the project file
-        proj_file = self.write_basic_custom_build(proj,
-                                                  command=f'{sys.executable} {os.path.abspath(__file__)} --reconfigure --build_root={self.build_dir}')
+        proj_file = self.write_basic_custom_build(
+            proj, command=f'{sys.executable} {os.path.abspath(__file__)} --reconfigure --build_root={self.build_dir}'
+        )
         proj_file.write('\t<PropertyGroup>\n')
         for opt in self.intro['buildoptions']:
             opt_name = opt["name"].replace(".", "__")
@@ -492,14 +553,10 @@ class VisualStudioSolution:
 
     def generate_build_proj(self, target: BuildTarget):
         proj_file = open(f'{self.build_dir}/{target.id}.vcxproj', 'w', encoding='utf-8')
-        proj_file.write(vs_header_tmpl.format(
-            initial_targets="",
-            configuration=self.build_type,
-            platform=self.platform))
-        proj_file.write(vs_globals_tmpl.format(
-            guid=target.guid,
-            name=target.name,
-            platform=self.platform))
+        proj_file.write(
+            vs_header_tmpl.format(initial_targets="", configuration=self.build_type, platform=self.platform)
+        )
+        proj_file.write(vs_globals_tmpl.format(guid=target.guid, name=target.name, platform=self.platform))
 
         # NMake
         proj_file.write(vs_config_tmpl.format(config_type="MakeFile"))
@@ -516,28 +573,35 @@ class VisualStudioSolution:
         sleep = 'powershell -nop -c "&amp; {sleep -m 200}"'
         compile = f'{self.meson} compile -C {self.build_dir}'
         check_if_ninja_already_running = f'if not exist {self.build_dir}\\{build_single_target} (exit /b 0)'
-        proj_file.write(vs_nmake_tmpl.format(
-            output=target.output,
-            build_cmd=f'{sleep} \n {check_if_ninja_already_running}\n {compile} {target.name}',
-            clean_cmd=f'{compile} --clean',
-            rebuild_cmd=f'{compile} --clean \n {compile} {target.name}',
-            includes=";".join(include_paths),
-            preprocessor_macros=";".join(preprocessor_macros),
-            additional_options=" ".join(additional_options),
-        ))
+        proj_file.write(
+            vs_nmake_tmpl.format(
+                output=target.output,
+                build_cmd=f'{sleep} \n {check_if_ninja_already_running}\n {compile} {target.name}',
+                clean_cmd=f'{compile} --clean',
+                rebuild_cmd=f'{compile} --clean \n {compile} {target.name}',
+                includes=";".join(include_paths),
+                preprocessor_macros=";".join(preprocessor_macros),
+                additional_options=" ".join(additional_options),
+            )
+        )
         # Files
         proj_file.write('\t<ItemGroup>\n')
         for src in target.sources + target.extra_files + self.headers[target.name]:
             proj_file.write(f'\t\t<ClCompile Include="{src}">\n')
-            proj_file.write(f'\t\t\t<AdditionalIncludeDirectories>{";".join(include_paths)}</AdditionalIncludeDirectories>\n')
+            proj_file.write(
+                f'\t\t\t<AdditionalIncludeDirectories>{";".join(include_paths)}</AdditionalIncludeDirectories>\n'
+            )
             proj_file.write(f'\t\t</ClCompile>\n')
         proj_file.write('\t</ItemGroup>\n')
         # Dependencies
         proj_file.write('\t<ItemGroup>\n')
-        proj_file.write(vs_dependency_tmpl.format(
-            vcxproj_name=f'{self.build_dir}\\{self.solution_prebuild.id}.vcxproj',
-            project_guid=self.solution_prebuild.guid,
-            link_deps='false'))
+        proj_file.write(
+            vs_dependency_tmpl.format(
+                vcxproj_name=f'{self.build_dir}\\{self.solution_prebuild.id}.vcxproj',
+                project_guid=self.solution_prebuild.guid,
+                link_deps='false',
+            )
+        )
         proj_file.write('\t</ItemGroup>\n')
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
@@ -566,10 +630,15 @@ class VisualStudioSolution:
         for proj in self.vcxprojs:
             sln.write(f'Project("{cpp_guid}") = "{proj.name}", "{proj.id}.vcxproj", "{{{proj.guid}}}"\n')
             sln.write('EndProject\n')
-        # Move run targets to own folder
-        build_to_run_guid = generate_guid()
-        sln.write(f'Project("{directory_guid}") = "Build to run", "Build to run", "{{{build_to_run_guid}}}"\n')
-        sln.write('EndProject\n')
+        # Targets in correct subfolder
+        self.subdir_guids = {}
+        for subdir in self.subdirs:
+            if subdir == '':
+                continue
+            guid = generate_guid()
+            self.subdir_guids[subdir] = guid
+            sln.write(f'Project("{directory_guid}") = "{subdir}", "{subdir}", "{{{guid}}}"\n')
+            sln.write('EndProject\n')
         sln.write('Global\n')
         sln.write('\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n')
         sln.write(f'\t\t{self.build_type}|{self.platform} = {self.build_type}|{self.platform}\n')
@@ -577,17 +646,20 @@ class VisualStudioSolution:
 
         sln.write('\tGlobalSection(ProjectConfigurationPlatforms) = postSolution\n')
         for proj in self.vcxprojs:
-            sln.write(f'\t\t{{{proj.guid}}}.{self.build_type}|{self.platform}.ActiveCfg = {self.build_type}|{self.platform}\n')
+            sln.write(
+                f'\t\t{{{proj.guid}}}.{self.build_type}|{self.platform}.ActiveCfg = {self.build_type}|{self.platform}\n'
+            )
             if proj.build_by_default:
-                sln.write(f'\t\t{{{proj.guid}}}.{self.build_type}|{self.platform}.Build.0 = {self.build_type}|{self.platform}\n')
+                sln.write(
+                    f'\t\t{{{proj.guid}}}.{self.build_type}|{self.platform}.Build.0 = {self.build_type}|{self.platform}\n'
+                )
         sln.write('\tEndGlobalSection\n')
 
         # Run targets in "Build to run" folder
         sln.write('\tGlobalSection(NestedProjects) = preSolution\n')
         for proj in self.vcxprojs:
-            if not(proj.is_run_target):
-                continue
-            sln.write(f'\t\t{{{proj.guid}}} = {{{build_to_run_guid}}}\n')
+            if proj.subdir != '':
+                sln.write(f'\t\t{{{proj.guid}}} = {{{self.subdir_guids[proj.subdir]}}}\n')
         sln.write('\tEndGlobalSection\n')
 
         sln.write('\tGlobalSection(SolutionProperties) = preSolution\n')
@@ -595,6 +667,7 @@ class VisualStudioSolution:
         sln.write('\tEndGlobalSection\n')
         sln.write('EndGlobal\n')
         sln.close()
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Create Visual Studio solution with ninja backend.')
