@@ -436,8 +436,8 @@ class VisualStudioSolution:
         proj_file.write(
             vs_propertygrp_tmpl.format(out_dir='.\\', intermediate_dir=f'{proj.id}_temp\\', output=f'{proj.id}')
         )
-        proj_contents = f'meson-private\\always_rebuild_{proj.id}.rule'
-        proj_output = f'meson-private\\always_rebuild_{proj.id}.out'
+        proj_contents = f'{proj.id}_temp\\always_rebuild_{proj.id}.rule'
+        proj_output = f'{proj.id}_temp\\always_rebuild_{proj.id}.out'
         proj_file.write(
             vs_custom_itemgroup_tmpl.format(
                 command=command,
@@ -458,7 +458,9 @@ class VisualStudioSolution:
             )
             proj_file.write('\t</ItemGroup>\n')
         if not (self.build_dir / proj_contents).exists():
-            open(proj_contents, 'w', encoding='utf-8').close()
+            if not (self.build_dir / proj_contents).parents[0].exists():
+                os.makedirs((self.build_dir / proj_contents).parents[0])
+            open(self.build_dir / proj_contents, 'w', encoding='utf-8').close()
         if verify_io:
             open(self.build_dir / proj_output, 'w', encoding='utf-8').close()
         return proj_file
