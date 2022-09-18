@@ -529,7 +529,7 @@ class VisualStudioSolution:
         compile = f'ninja -C &quot;{self.build_dir}&quot;'
         proj_file.write(
             vs_nmake_tmpl.format(
-                output=target.output,
+                output=os.path.basename(target.output),
                 build_cmd=f'{compile} &quot;{target.output}&quot;',
                 clean_cmd=f'{compile} clean',
                 rebuild_cmd=f'{compile} clean \n {compile} &quot;{target.output}&quot;',
