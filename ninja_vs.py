@@ -204,7 +204,7 @@ def get_headers(meson, intro):
                 target_proj = target_name
                 break
         if target_proj == None:
-            raise Exception(f"Unable to find target project for object {object_name}")
+            continue
         # Add headers to target
         headers = re.search('  (.|\n)*', dep)
         if headers != None:
