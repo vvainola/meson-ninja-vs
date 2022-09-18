@@ -395,7 +395,7 @@ class VisualStudioSolution:
             )
             self.vcxprojs.append(vcxproj)
             if vcxproj.is_run_target:
-                self.generate_run_proj(vcxproj, f'ninja {target["name"]}')
+                self.generate_run_proj(vcxproj, f'ninja -C &quot;{self.build_dir}&quot; {target["name"]}')
             else:
                 self.generate_build_proj(BuildTarget(target, guid, self.build_dir))
         self.generate_solution(self.intro['projectinfo']['descriptive_name'] + '.sln')
