@@ -356,7 +356,7 @@ class VisualStudioSolution:
             subdir=build_to_run_subdir,
         )
         self.vcxprojs.append(test_proj)
-        self.generate_run_proj(test_proj, f'ninja test')
+        self.generate_run_proj(test_proj, f'{get_meson_command(self.build_dir)} test')
         # Regen
         self.regen_proj = VcxProj(
             "Regenerate solution",
