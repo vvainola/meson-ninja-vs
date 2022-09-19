@@ -443,7 +443,7 @@ class VisualStudioSolution:
     def generate_regen_proj(self, proj):
         proj_file = self.write_basic_custom_build(
             proj,
-            command=f'{sys.executable} {os.path.abspath(__file__)} --build_root &quot;{self.build_dir}&quot;',
+            command=f'{sys.executable} &quot;{os.path.abspath(__file__)}&quot; --build_root &quot;{self.build_dir}&quot;',
             additional_inputs="build.ninja",
             verify_io=True,
         )
@@ -496,7 +496,7 @@ class VisualStudioSolution:
         # Create the project file
         proj_file = self.write_basic_custom_build(
             proj,
-            command=f'{sys.executable} {os.path.abspath(__file__)} --reconfigure --build_root=&quot;{self.build_dir}&quot;',
+            command=f'{sys.executable} &quot;{os.path.abspath(__file__)}&quot; --reconfigure --build_root=&quot;{self.build_dir}&quot;',
         )
         proj_file.write('\t<PropertyGroup>\n')
         for opt in self.intro['buildoptions']:
