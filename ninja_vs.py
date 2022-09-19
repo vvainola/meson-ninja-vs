@@ -134,7 +134,7 @@ class BuildTarget:
             self.sources.extend(target_sources['generated_sources'])
             self.parameters.extend(target_sources['parameters'])
         self.extra_files = intro_target.get('extra_files', [])
-        if len(intro_target['filename']) == 1:
+        if len(intro_target['filename']) > 0:
             self.output = os.path.relpath(intro_target['filename'][0], build_dir)
         else:
             self.output = ""
