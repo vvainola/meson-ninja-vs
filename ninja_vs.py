@@ -85,8 +85,7 @@ vs_custom_itemgroup_tmpl = """\t<ItemDefinitionGroup>
 \t\t</CustomBuild>
 \t</ItemDefinitionGroup>
 \t<ItemGroup>
-\t\t<CustomBuild Include="{contents}">
-\t\t</CustomBuild>
+\t\t<CustomBuild Include="{contents}" />
 \t</ItemGroup>\n"""
 
 vs_dependency_tmpl = """\t\t<ProjectReference Include="{vcxproj_name}">
@@ -244,6 +243,7 @@ def get_introspect_files(build_dir):
         target['id'] = str(prefix / target['id'])
     return intro
 
+
 def get_meson_command(build_dir):
     with open(Path(build_dir) / 'build.ninja', 'r') as f:
         lines = f.readlines()
@@ -258,6 +258,7 @@ def get_meson_command(build_dir):
                         break
                 return " ".join(command[start:end])
     raise Exception("Unable to find meson command from build.ninja")
+
 
 def run_reconfigure(build_dir):
     build_dir = Path(build_dir)
@@ -290,11 +291,7 @@ def run_reconfigure(build_dir):
         configure = f'{meson} configure {" ".join(changed_options)}'
         print(configure)
         print(subprocess.check_output(configure, cwd=build_dir).decode('utf-8').replace('\r', ''))
-    print(
-        subprocess.check_output(f'ninja build.ninja', cwd=build_dir)
-        .decode('utf-8')
-        .replace('\r', '')
-    )
+    print(subprocess.check_output(f'ninja build.ninja', cwd=build_dir).decode('utf-8').replace('\r', ''))
 
 
 class VisualStudioSolution:
@@ -404,26 +401,40 @@ class VisualStudioSolution:
         proj_file.write(vs_header_tmpl.format(configuration=self.build_type, platform=self.platform))
         proj_file.write(vs_globals_tmpl.format(guid=proj.guid, platform=self.platform, name=proj.name))
         proj_file.write(vs_config_tmpl.format(config_type="Utility"))
+        # VS requires some contents in the project to be able to build it so a .dummy file is created for that
+        proj_id_basename = os.path.basename(proj.id)
+        proj_temp_dir = f'{proj_id_basename}_temp'
+        proj_temp_dir_abs = self.build_dir / f'{proj.id}_temp'
+
+        proj_content_file = f'run_{proj_id_basename}.dummy'
+        proj_content = f'{proj_temp_dir}\\{proj_content_file}'
+        proj_content_abs = proj_temp_dir_abs / proj_content_file
+
+        proj_output_file = f'run_{proj_id_basename}.out'
+        proj_output = f'{proj_temp_dir}\\{proj_output_file}'
+        proj_output_abs = proj_temp_dir_abs / proj_output_file
+
         proj_file.write(
-            vs_propertygrp_tmpl.format(out_dir='.\\', intermediate_dir=f'{proj.id}_temp\\', output=f'{proj.id}')
+            vs_propertygrp_tmpl.format(
+                out_dir='.\\', intermediate_dir=f'.\\{proj_temp_dir}\\', output=f'.\\{proj_id_basename}'
+            )
         )
-        proj_contents = f'{proj.id}_temp\\always_rebuild_{proj.id}.rule'
-        proj_output = f'{proj.id}_temp\\always_rebuild_{proj.id}.out'
         proj_file.write(
             vs_custom_itemgroup_tmpl.format(
                 command=command,
                 additional_inputs=additional_inputs,
                 out_file=proj_output,
-                contents=proj_contents,
+                contents=proj_content,
                 verify_io=verify_io,
             )
         )
-        if not (self.build_dir / proj_contents).exists():
-            if not (self.build_dir / proj_contents).parents[0].exists():
-                os.makedirs((self.build_dir / proj_contents).parents[0])
-            open(self.build_dir / proj_contents, 'w', encoding='utf-8').close()
+        # Create dummy file and output if needed
+        if not proj_content_abs.exists():
+            if not proj_content_abs.parents[0].exists():
+                os.makedirs(proj_content_abs.parents[0])
+            open(proj_content_abs, 'w', encoding='utf-8').close()
         if verify_io:
-            open(self.build_dir / proj_output, 'w', encoding='utf-8').close()
+            open(proj_output_abs, 'w', encoding='utf-8').close()
         return proj_file
 
     def generate_run_proj(self, proj: VcxProj, cmd):
