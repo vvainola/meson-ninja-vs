@@ -41,8 +41,8 @@ vs_header_tmpl = """<?xml version="1.0" ?>
 \t</ItemGroup>\n"""
 
 vs_globals_tmpl = """\t<PropertyGroup Label="Globals">
-\t\t<ProjectGuid>{guid}</ProjectGuid>
-\t\t<Keyword>{platform}Proj</Keyword>
+\t\t<ProjectGuid>{{{guid}}}</ProjectGuid>
+\t\t<Keyword>Win32Proj</Keyword>
 \t\t<Platform>{platform}</Platform>
 \t\t<ProjectName>{name}</ProjectName>
 \t</PropertyGroup>
@@ -99,8 +99,7 @@ vs_end_proj_tmpl = """\t<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"
 </Project>"""
 
 vs_start_filter = """<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-\t<ItemGroup>\n"""
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">\n"""
 
 vs_include_meson_options = """\t<ItemGroup>
 \t\t<PropertyPageSchema Include="meson_options.xml">
@@ -553,6 +552,7 @@ class VisualStudioSolution:
         # Add filter file so that headers are in own folder
         filter_file = open(f'{self.build_dir}/{target.id}.vcxproj.filters', 'w', encoding='utf-8')
         filter_file.write(vs_start_filter)
+        filter_file.write('\t<ItemGroup>\n')
         for src in target.sources + target.extra_files:
             filter_file.write(f'\t\t<ClCompile Include="{src}"/>\n')
         for h in self.headers[target.name]:
