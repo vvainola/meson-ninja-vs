@@ -330,7 +330,7 @@ class VisualStudioSolution:
             subdir=build_to_run_subdir,
         )
         self.vcxprojs.append(self.ninja_proj)
-        self.generate_ninja_proj(self.ninja_proj)
+        self.generate_run_proj(self.ninja_proj, 'ninja')
         # Install
         install_proj = VcxProj(
             "Run install",
@@ -363,7 +363,10 @@ class VisualStudioSolution:
             subdir=build_to_run_subdir,
         )
         self.vcxprojs.append(self.regen_proj)
-        self.generate_regen_proj(self.regen_proj)
+        self.generate_run_proj(
+            self.regen_proj,
+            f'ninja build.ninja &amp;&amp; {sys.executable} &quot;{os.path.abspath(__file__)}&quot; --build_root &quot;{self.build_dir}&quot;',
+        )
         # Reconfigure
         self.reconfigure_proj = VcxProj(
             "Reconfigure project",
@@ -396,74 +399,29 @@ class VisualStudioSolution:
                 self.generate_build_proj(BuildTarget(target, guid, self.build_dir))
         self.generate_solution(self.intro['projectinfo']['descriptive_name'] + '.sln')
 
-    def write_basic_custom_build(self, proj, command, additional_inputs="", verify_io=False):
+    def write_basic_custom_build(self, proj, command):
         proj_file = open(f'{self.build_dir}/{proj.id}.vcxproj', 'w', encoding='utf-8')
         proj_file.write(vs_header_tmpl.format(configuration=self.build_type, platform=self.platform))
         proj_file.write(vs_globals_tmpl.format(guid=proj.guid, platform=self.platform, name=proj.name))
-        proj_file.write(vs_config_tmpl.format(config_type="Utility"))
-        # VS requires some contents in the project to be able to build it so a .dummy file is created for that
-        proj_id_basename = os.path.basename(proj.id)
-        proj_temp_dir = f'{proj_id_basename}_temp'
-        proj_temp_dir_abs = self.build_dir / f'{proj.id}_temp'
+        proj_file.write(vs_config_tmpl.format(config_type="MakeFile"))
 
-        proj_content_file = f'run_{proj_id_basename}.dummy'
-        proj_content = f'{proj_temp_dir}\\{proj_content_file}'
-        proj_content_abs = proj_temp_dir_abs / proj_content_file
-
-        proj_output_file = f'run_{proj_id_basename}.out'
-        proj_output = f'{proj_temp_dir}\\{proj_output_file}'
-        proj_output_abs = proj_temp_dir_abs / proj_output_file
-
+        # NMake
+        compile = f'ninja -C &quot;{self.build_dir}&quot;'
         proj_file.write(
-            vs_propertygrp_tmpl.format(
-                out_dir='.\\', intermediate_dir=f'.\\{proj_temp_dir}\\', output=f'.\\{proj_id_basename}'
+            vs_nmake_tmpl.format(
+                output=f"{proj.id}.dummy",
+                build_cmd=f'{command}',
+                clean_cmd=f'{compile} clean',
+                rebuild_cmd=f'{compile} clean \n {command}',
+                includes="",
+                preprocessor_macros="",
+                additional_options="",
             )
         )
-        proj_file.write(
-            vs_custom_itemgroup_tmpl.format(
-                command=command,
-                additional_inputs=additional_inputs,
-                out_file=proj_output,
-                contents=proj_content,
-                verify_io=verify_io,
-            )
-        )
-        # Create dummy file and output if needed
-        if not proj_content_abs.exists():
-            if not proj_content_abs.parents[0].exists():
-                os.makedirs(proj_content_abs.parents[0])
-            open(proj_content_abs, 'w', encoding='utf-8').close()
-        if verify_io:
-            open(proj_output_abs, 'w', encoding='utf-8').close()
         return proj_file
 
     def generate_run_proj(self, proj: VcxProj, cmd):
-        proj_file = self.write_basic_custom_build(proj, command=cmd + " $(LocalDebuggerCommandArguments)")
-        proj_file.write(vs_end_proj_tmpl)
-        proj_file.close()
-
-    def generate_ninja_proj(self, proj: VcxProj):
-        proj_file = self.write_basic_custom_build(
-            proj,
-            command=f'ninja $(LocalDebuggerCommandArguments)',
-        )
-        proj_file.write(vs_end_proj_tmpl)
-        proj_file.close()
-
-    def generate_regen_proj(self, proj):
-        proj_file = self.write_basic_custom_build(
-            proj,
-            command=f'{sys.executable} &quot;{os.path.abspath(__file__)}&quot; --build_root &quot;{self.build_dir}&quot;',
-            additional_inputs="build.ninja",
-            verify_io=True,
-        )
-        proj_file.write('\t<ItemGroup>\n')
-        proj_file.write(
-            vs_dependency_tmpl.format(
-                vcxproj_name=f'{self.ninja_proj.id}.vcxproj', project_guid=self.ninja_proj.guid, link_deps='false'
-            )
-        )
-        proj_file.write('\t</ItemGroup>\n')
+        proj_file = self.write_basic_custom_build(proj, cmd)
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
 
@@ -623,7 +581,7 @@ class VisualStudioSolution:
             sln.write(
                 f'\t\t{{{proj.guid}}}.{self.build_type}|{self.platform}.ActiveCfg = {self.build_type}|{self.platform}\n'
             )
-            if proj == self.regen_proj or proj == self.ninja_proj:
+            if proj == self.ninja_proj:
                 sln.write(
                     f'\t\t{{{proj.guid}}}.{self.build_type}|{self.platform}.Build.0 = {self.build_type}|{self.platform}\n'
                 )
