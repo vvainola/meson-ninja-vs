@@ -339,7 +339,7 @@ class VisualStudioSolution:
             subdir=build_to_run_subdir,
         )
         self.vcxprojs.append(self.ninja_proj)
-        self.generate_ninja_proj(self.ninja_proj)
+        self.generate_run_proj(self.ninja_proj, 'ninja')
         # Install
         install_proj = VcxProj(
             "Run install",
@@ -448,14 +448,6 @@ class VisualStudioSolution:
 
     def generate_run_proj(self, proj: VcxProj, cmd):
         proj_file = self.write_basic_custom_build(proj, command=cmd + " $(LocalDebuggerCommandArguments)")
-        proj_file.write(vs_end_proj_tmpl)
-        proj_file.close()
-
-    def generate_ninja_proj(self, proj: VcxProj):
-        proj_file = self.write_basic_custom_build(
-            proj,
-            command=f'ninja $(LocalDebuggerCommandArguments)',
-        )
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
 
