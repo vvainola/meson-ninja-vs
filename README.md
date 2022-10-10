@@ -4,7 +4,6 @@
 Generate Visual Studio solution for [Meson](https://mesonbuild.com/) build system also with Ninja backend. The Visual Studio solution is only a wrapper for the Ninja build. Meson has native Visual Studio backend support but it is not as mature as the Ninja backend. 
 
 ## Usage
-Call the script from same Visual Studio developer command prompt that is used for generating the build directory.
 ```
 python ninja_vs.py --build_root path_to_build_root
 ```
