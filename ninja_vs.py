@@ -259,6 +259,18 @@ def get_meson_command(build_dir):
                 return " ".join(command[start:end])
     raise Exception("Unable to find meson command from build.ninja")
 
+def get_arch(build_dir):
+    with open(Path(build_dir) / 'build.ninja', 'r') as f:
+        # rule cpp_LINKER
+        # command = "link" $ARGS /MACHINE:x86
+        lines = f.readlines()
+        for i, line in enumerate(lines):
+            if line == "rule cpp_LINKER\n":
+                command = re.search('(?<=(\/MACHINE:))[0-9a-zA-Z]+\w', lines[i + 1])
+                if command != None:
+                    return command.group(0)
+    raise Exception("Unable to find machine architecture from build.ninja")
+
 
 def run_reconfigure(build_dir):
     build_dir = Path(build_dir)
@@ -299,10 +311,7 @@ class VisualStudioSolution:
         self.build_dir = Path(build_dir)
         if not (Path(build_dir).is_absolute()):
             self.build_dir = self.build_dir.absolute()
-        cl_location = shutil.which('cl')
-        if cl_location == None:
-            sys.exit("cl.exe not found from PATH. Are you running from VS developer command prompt?")
-        arch = os.path.basename(os.path.dirname(cl_location))
+        arch = get_arch(self.build_dir)
         if arch == 'x86':
             self.platform = 'Win32'
         else:
