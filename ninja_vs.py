@@ -259,6 +259,7 @@ def get_meson_command(build_dir):
                 return " ".join(command[start:end])
     raise Exception("Unable to find meson command from build.ninja")
 
+
 def get_arch(build_dir):
     with open(Path(build_dir) / 'build.ninja', 'r') as f:
         # rule cpp_LINKER
@@ -311,6 +312,9 @@ class VisualStudioSolution:
         self.build_dir = Path(build_dir)
         if not (Path(build_dir).is_absolute()):
             self.build_dir = self.build_dir.absolute()
+        self.tmp_dir = self.build_dir / 'ninja_vs_temp'
+        if not self.tmp_dir.exists():
+            os.mkdir(self.tmp_dir)
         arch = get_arch(self.build_dir)
         if arch == 'x86':
             self.platform = 'Win32'
@@ -329,17 +333,6 @@ class VisualStudioSolution:
 
         self.headers = get_headers(self.intro)
 
-        # Ninja target that handles building whole solution
-        self.ninja_proj = VcxProj(
-            "Ninja",
-            "Ninja",
-            generate_guid_from_path(self.build_dir / 'ninja'),
-            build_by_default=True,
-            is_run_target=True,
-            subdir=build_to_run_subdir,
-        )
-        self.vcxprojs.append(self.ninja_proj)
-        self.generate_run_proj(self.ninja_proj, 'ninja')
         # Install
         install_proj = VcxProj(
             "Run install",
@@ -362,17 +355,6 @@ class VisualStudioSolution:
         )
         self.vcxprojs.append(test_proj)
         self.generate_run_proj(test_proj, f'{get_meson_command(self.build_dir)} test')
-        # Regen
-        self.regen_proj = VcxProj(
-            "Regenerate solution",
-            "Regenerate_solution",
-            generate_guid_from_path(self.build_dir / 'regen'),
-            build_by_default=True,
-            is_run_target=True,
-            subdir=build_to_run_subdir,
-        )
-        self.vcxprojs.append(self.regen_proj)
-        self.generate_regen_proj(self.regen_proj)
         # Reconfigure
         self.reconfigure_proj = VcxProj(
             "Reconfigure project",
@@ -403,6 +385,35 @@ class VisualStudioSolution:
                 self.generate_run_proj(vcxproj, f'ninja -C &quot;{self.build_dir}&quot; {target["name"]}')
             else:
                 self.generate_build_proj(BuildTarget(target, guid, self.build_dir))
+        # Ninja target that handles building whole solution
+        ninja_deps = []
+        for proj in self.vcxprojs:
+            if proj.build_by_default:
+                ninja_deps.append(proj)
+        self.ninja_proj = VcxProj(
+            "Ninja",
+            "Ninja",
+            generate_guid_from_path(self.build_dir / 'ninja'),
+            build_by_default=True,
+            is_run_target=True,
+            subdir=build_to_run_subdir,
+        )
+        self.vcxprojs.append(self.ninja_proj)
+        # Delete tmp files so that single project builds won't get stuck
+        ninja_cmd = f'del /s /q /f {self.tmp_dir}\\* > NUL \n ninja'
+        self.generate_run_proj(self.ninja_proj, ninja_cmd, ninja_deps)
+        # Regen
+        self.regen_proj = VcxProj(
+            "Regenerate solution",
+            "Regenerate_solution",
+            generate_guid_from_path(self.build_dir / 'regen'),
+            build_by_default=True,
+            is_run_target=True,
+            subdir=build_to_run_subdir,
+        )
+        self.vcxprojs.append(self.regen_proj)
+        self.generate_regen_proj(self.regen_proj)
+
         self.generate_solution(self.intro['projectinfo']['descriptive_name'] + '.sln')
 
     def write_basic_custom_build(self, proj, command, additional_inputs="", verify_io=False):
@@ -446,8 +457,16 @@ class VisualStudioSolution:
             open(proj_output_abs, 'w', encoding='utf-8').close()
         return proj_file
 
-    def generate_run_proj(self, proj: VcxProj, cmd):
+    def generate_run_proj(self, proj: VcxProj, cmd, dependencies=[]):
         proj_file = self.write_basic_custom_build(proj, command=cmd + " $(LocalDebuggerCommandArguments)")
+
+        # Dependencies
+        proj_file.write('\t<ItemGroup>\n')
+        for dep in dependencies:
+            proj_file.write(
+                vs_dependency_tmpl.format(vcxproj_name=f'{dep.id}.vcxproj', project_guid=dep.guid, link_deps='false')
+            )
+        proj_file.write('\t</ItemGroup>\n')
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
 
@@ -537,13 +556,28 @@ class VisualStudioSolution:
                 preprocessor_macros.append(par[2:])
             else:
                 additional_options.append(par)
-        compile = f'ninja -C &quot;{self.build_dir}&quot;'
+        # Single project builds are skipped when building whole solution by creating
+        # a temp file, wait 200ms and check if there is more than 1 temp file. If there
+        # is, it indicates that are other projects building simultaneously and the whole
+        # solution will be built by separate ninja project. If there is still only 1 temp
+        # file, the project has been started alone and ninja will build only that project
+        ninja = f'ninja -C &quot;{self.build_dir}&quot;'
+        sleep = 'import time; time.sleep(0.2)'
+        tmp_dir_forward_slash = str(self.tmp_dir).replace('\\', '/')
+        count_files = f'import os;import sys; sys.exit(len(os.listdir(&apos;{tmp_dir_forward_slash}&apos;))'
+        create_temp_file = f'copy NUL &quot;{self.tmp_dir}\\{target.name}.tmp&quot; > NUL'
+        compile = f'''
+{create_temp_file}
+&quot;{sys.executable}&quot; -c &quot;{sleep};{count_files} == 1)&quot;
+if %ERRORLEVEL% == 1 ({ninja} &quot;{target.output}&quot;) else (exit /b 0)
+del /s /q /f {self.tmp_dir}\\* > NUL
+'''
         proj_file.write(
             vs_nmake_tmpl.format(
                 output=os.path.basename(target.output),
-                build_cmd=f'{compile} &quot;{target.output}&quot;',
-                clean_cmd=f'{compile} clean',
-                rebuild_cmd=f'{compile} clean \n {compile} &quot;{target.output}&quot;',
+                build_cmd=f'{compile}',
+                clean_cmd=f'{ninja} clean',
+                rebuild_cmd=f'{ninja} clean \n {compile}',
                 includes=";".join(include_paths),
                 preprocessor_macros=";".join(preprocessor_macros),
                 additional_options=" ".join(additional_options),
@@ -624,7 +658,7 @@ class VisualStudioSolution:
             sln.write(
                 f'\t\t{{{proj.guid}}}.{self.build_type}|{self.platform}.ActiveCfg = {self.build_type}|{self.platform}\n'
             )
-            if proj == self.regen_proj or proj == self.ninja_proj:
+            if proj.build_by_default:
                 sln.write(
                     f'\t\t{{{proj.guid}}}.{self.build_type}|{self.platform}.Build.0 = {self.build_type}|{self.platform}\n'
                 )
