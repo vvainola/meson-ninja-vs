@@ -46,18 +46,20 @@ vs_globals_tmpl = """\t<PropertyGroup Label="Globals">
 \t\t<Platform>{platform}</Platform>
 \t\t<ProjectName>{name}</ProjectName>
 \t</PropertyGroup>
-\t<ItemDefinitionGroup>
-\t\t<Link>
-\t\t\t<SubSystem>Console</SubSystem>
-\t\t</Link>
-\t</ItemDefinitionGroup>
 \t<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>\n"""
 
 vs_config_tmpl = """\t<PropertyGroup Label="Configuration">
 \t\t<PlatformToolset>v143</PlatformToolset>
 \t\t<ConfigurationType>{config_type}</ConfigurationType>
 \t</PropertyGroup>
-\t<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/>\n"""
+\t<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/>
+\t<ImportGroup Label="ExtensionSettings"/>
+\t<ImportGroup Label="Shared"/>
+\t<ImportGroup Label="PropertySheets">
+\t\t<Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform"/>
+\t</ImportGroup>
+\t<PropertyGroup Label="UserMacros"/>
+\n"""
 
 vs_propertygrp_tmpl = """\t<PropertyGroup>
 \t\t<OutDir>{out_dir}</OutDir>
@@ -400,7 +402,7 @@ class VisualStudioSolution:
         )
         self.vcxprojs.append(self.ninja_proj)
         # Delete tmp files so that single project builds won't get stuck
-        ninja_cmd = f'del /s /q /f {self.tmp_dir}\\* > NUL \n ninja'
+        ninja_cmd = f'del /s /q /f &quot;{self.tmp_dir}\\*&quot; > NUL \n ninja'
         self.generate_run_proj(self.ninja_proj, ninja_cmd, ninja_deps)
         # Regen
         self.regen_proj = VcxProj(
@@ -545,7 +547,7 @@ class VisualStudioSolution:
         proj_file.write(vs_globals_tmpl.format(guid=target.guid, name=target.name, platform=self.platform))
 
         # NMake
-        proj_file.write(vs_config_tmpl.format(config_type="MakeFile"))
+        proj_file.write(vs_config_tmpl.format(config_type="Makefile"))
         include_paths = []
         preprocessor_macros = []
         additional_options = []
