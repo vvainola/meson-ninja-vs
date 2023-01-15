@@ -13,8 +13,10 @@ The build root then contains the Visual Studio solution with same name as the pr
 * Enable using wrapper exe for cl.exe.
 * Change Meson build options from Visual Studio GUI by changing "Reconfigure project" project properties.
 * Automatically add used headers from source directory to the projects.
-
+* Rebuild tests before running if needed
+* Override options keyword works in meson targets
 
 ## Known issues
 * It is not possible to have the generation as a part of a meson.build file. The generation uses introspect information that is not available when generating the build directory for the first time.
+* Building a single file with CTRL+F7 does not work
 * Only Visual Studio 2022 is supported. Other versions can be used if the PlatformToolset field is corrected. Other languages than C++ have not been tested.
