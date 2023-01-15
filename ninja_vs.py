@@ -126,14 +126,7 @@ class BuildTarget:
         self.guid = guid
         self.type = intro_target['type']
         self.build_by_default = intro_target['build_by_default']
-        target_sources = intro_target['target_sources']
-        self.sources = []
-        self.parameters = []
-        if target_sources != []:
-            target_sources = target_sources[0]
-            self.sources.extend(target_sources['sources'])
-            self.sources.extend(target_sources['generated_sources'])
-            self.parameters.extend(target_sources['parameters'])
+        self.target_sources = intro_target['target_sources']
         self.extra_files = intro_target.get('extra_files', [])
         if len(intro_target['filename']) > 0:
             self.output = os.path.relpath(intro_target['filename'][0], build_dir)
@@ -548,16 +541,32 @@ class VisualStudioSolution:
 
         # NMake
         proj_file.write(vs_config_tmpl.format(config_type="Makefile"))
-        include_paths = []
-        preprocessor_macros = []
-        additional_options = []
-        for par in target.parameters:
-            if par.startswith('-I') or par.startswith('/I'):
-                include_paths.append(par[2:])
-            elif par.startswith('-D') or par.startswith('/D'):
-                preprocessor_macros.append(par[2:])
-            else:
-                additional_options.append(par)
+
+        # Sources in json are per-language so collect all languages in case of mixed c & cpp. Adding all
+        # options to project settings is wrong but intellisense does not work properly if the settings
+        # are added only to file
+        all_include_paths = []
+        all_preprocessor_macros = []
+        all_additional_options = []
+        lang_src = {}
+        for target_src in target.target_sources:
+            lang = target_src['language']
+            lang_src[lang] = {}
+            lang_src[lang]['language'] = lang
+            lang_src[lang]['includes'] = []
+            lang_src[lang]['preprocessor_macros'] = []
+            lang_src[lang]['additional_options'] = []
+            for par in target_src['parameters']:
+                if par.startswith('-I') or par.startswith('/I'):
+                    all_include_paths.append(par[2:])
+                    lang_src[lang]['includes'].append(par[2:])
+                elif par.startswith('-D') or par.startswith('/D'):
+                    all_preprocessor_macros.append(par[2:])
+                    lang_src[lang]['preprocessor_macros'].append(par[2:])
+                else:
+                    all_additional_options.append(par)
+                    lang_src[lang]['additional_options'].append(par)
+            lang_src[lang]['sources'] = target_src['sources'] + target_src['generated_sources']
         # Single project builds are skipped when building whole solution by creating
         # a temp file, wait 200ms and check if there is more than 1 temp file. If there
         # is, it indicates that are other projects building simultaneously and the whole
@@ -580,19 +589,40 @@ del /s /q /f {self.tmp_dir}\\* > NUL
                 build_cmd=f'{compile}',
                 clean_cmd=f'{ninja} clean',
                 rebuild_cmd=f'{ninja} clean \n {compile}',
-                includes=";".join(include_paths),
-                preprocessor_macros=";".join(preprocessor_macros),
-                additional_options=" ".join(additional_options),
+                includes=";".join(all_include_paths),
+                preprocessor_macros=";".join(all_preprocessor_macros),
+                additional_options=" ".join(all_additional_options),
             )
         )
+
         # Files
         proj_file.write('\t<ItemGroup>\n')
-        for src in target.sources + target.extra_files + self.headers[target.name]:
+        # For extra files use union of includes and preprocessor macros because the real values depend on the source file
+        # so it is possible that same header is included with different macros. Some include paths need to be set to the
+        # header because otherwise intellisense cannot jump from header to another header
+        for src in target.extra_files + self.headers[target.name]:
             proj_file.write(f'\t\t<ClCompile Include="{src}">\n')
             proj_file.write(
-                f'\t\t\t<AdditionalIncludeDirectories>{";".join(include_paths)}</AdditionalIncludeDirectories>\n'
+                f'\t\t\t<AdditionalIncludeDirectories>{";".join(all_include_paths)}</AdditionalIncludeDirectories>\n'
+            )
+            proj_file.write(
+                f'\t\t\t<PreprocessorDefinitions>{";".join(all_preprocessor_macros)}</PreprocessorDefinitions>\n'
             )
             proj_file.write(f'\t\t</ClCompile>\n')
+        # The lang_src contains language specific settings
+        for _, lang in lang_src.items():
+            for src in lang['sources']:
+                proj_file.write(f'\t\t<ClCompile Include="{src}">\n')
+                proj_file.write(
+                    f'\t\t\t<AdditionalIncludeDirectories>{";".join(lang["includes"])}</AdditionalIncludeDirectories>\n'
+                )
+                proj_file.write(
+                    f'\t\t\t<PreprocessorDefinitions>{";".join(lang["preprocessor_macros"])}</PreprocessorDefinitions>\n'
+                )
+                proj_file.write(
+                    f'\t\t\t<AdditionalOptions>{" ".join(lang["additional_options"])}</AdditionalOptions>\n'
+                )
+                proj_file.write(f'\t\t</ClCompile>\n')
         proj_file.write('\t</ItemGroup>\n')
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
@@ -601,8 +631,6 @@ del /s /q /f {self.tmp_dir}\\* > NUL
         filter_file = open(f'{self.build_dir}/{target.id}.vcxproj.filters', 'w', encoding='utf-8')
         filter_file.write(vs_start_filter)
         filter_file.write('\t<ItemGroup>\n')
-        for src in target.sources + target.extra_files:
-            filter_file.write(f'\t\t<ClCompile Include="{src}"/>\n')
         for h in self.headers[target.name]:
             filter_file.write(f'\t\t<ClCompile Include="{h}">\n')
             filter_file.write(f'\t\t\t<Filter>Headers</Filter>\n')
