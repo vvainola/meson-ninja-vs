@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "meson-ninja-vs"
+version = "0.1.0"
+description = "Visual Studio solution generation for Meson Ninja backend"
+authors = ["Vili Väinölä <vilivainola@gmail.com>"]
+license = "MIT"
+packages = [{include = "meson-ninja-vs", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

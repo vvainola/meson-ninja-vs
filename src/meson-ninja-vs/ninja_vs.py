@@ -49,7 +49,7 @@ vs_globals_tmpl = """\t<PropertyGroup Label="Globals">
 \t<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>\n"""
 
 vs_config_tmpl = """\t<PropertyGroup Label="Configuration">
-\t\t<PlatformToolset>v143</PlatformToolset>
+\t\t<PlatformToolset>v142</PlatformToolset>
 \t\t<ConfigurationType>{config_type}</ConfigurationType>
 \t</PropertyGroup>
 \t<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/>
