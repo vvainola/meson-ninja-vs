@@ -468,17 +468,10 @@ class VisualStudioSolution:
     def generate_regen_proj(self, proj):
         proj_file = self.write_basic_custom_build(
             proj,
-            command=f'{sys.executable} &quot;{os.path.abspath(__file__)}&quot; --build_root &quot;{self.build_dir}&quot;',
+            command=f'ninja build.ninja &amp;&amp; {sys.executable} &quot;{os.path.abspath(__file__)}&quot; --build_root &quot;{self.build_dir}&quot;',
             additional_inputs="build.ninja",
             verify_io=True,
         )
-        proj_file.write('\t<ItemGroup>\n')
-        proj_file.write(
-            vs_dependency_tmpl.format(
-                vcxproj_name=f'{self.ninja_proj.id}.vcxproj', project_guid=self.ninja_proj.guid, link_deps='false'
-            )
-        )
-        proj_file.write('\t</ItemGroup>\n')
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
 
