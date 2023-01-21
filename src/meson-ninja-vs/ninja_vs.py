@@ -301,15 +301,18 @@ def run_reconfigure(build_dir):
         print(subprocess.check_output(configure, cwd=build_dir).decode('utf-8').replace('\r', ''))
     print(subprocess.check_output(f'ninja build.ninja', cwd=build_dir).decode('utf-8').replace('\r', ''))
 
-
 class VisualStudioSolution:
     def __init__(self, build_dir):
         self.build_dir = Path(build_dir)
         if not (Path(build_dir).is_absolute()):
             self.build_dir = self.build_dir.absolute()
         self.tmp_dir = self.build_dir / 'ninja_vs_temp'
+        self.private_dir = self.build_dir / 'ninja_vs_private'
         if not self.tmp_dir.exists():
             os.mkdir(self.tmp_dir)
+        if not self.private_dir.exists():
+            os.mkdir(self.private_dir)
+        self.generate_python_sleep_script()
         arch = get_arch(self.build_dir)
         if arch == 'x86':
             self.platform = 'Win32'
@@ -566,13 +569,8 @@ class VisualStudioSolution:
         # solution will be built by separate ninja project. If there is still only 1 temp
         # file, the project has been started alone and ninja will build only that project
         ninja = f'ninja -C &quot;{self.build_dir}&quot;'
-        sleep = 'import time; time.sleep(0.2)'
-        tmp_dir_forward_slash = str(self.tmp_dir).replace('\\', '/')
-        count_files = f'import os;import sys; sys.exit(len(os.listdir(&apos;{tmp_dir_forward_slash}&apos;))'
-        create_temp_file = f'copy NUL &quot;{self.tmp_dir}\\{target.name}.tmp&quot; > NUL'
         compile = f'''
-{create_temp_file}
-&quot;{sys.executable}&quot; -c &quot;{sleep};{count_files} == 1)&quot;
+&quot;{sys.executable}&quot; {self.private_dir}\\parallel_sleep.py &quot;{target.name}&quot;
 if %ERRORLEVEL% == 1 ({ninja} &quot;{target.output}&quot;) else (exit /b 0)
 del /s /q /f {self.tmp_dir}\\* > NUL
 '''
@@ -702,6 +700,18 @@ del /s /q /f {self.tmp_dir}\\* > NUL
         sln.write('EndGlobal\n')
         sln.close()
 
+    def generate_python_sleep_script(self):
+        sleep_script = open(self.private_dir / 'parallel_sleep.py', 'w')
+        tmp_dir_forward_slash = str(self.tmp_dir).replace('\\', '/')
+        sleep_script.write(f'''
+import time;
+import os;
+import sys;
+open(f"{tmp_dir_forward_slash}/{{sys.argv[1]}}", "w").close()
+if len(os.listdir("{tmp_dir_forward_slash}")) < 2:
+    time.sleep(0.2)
+sys.exit(len(os.listdir("{tmp_dir_forward_slash}")))
+''')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Create Visual Studio solution with ninja backend.')
