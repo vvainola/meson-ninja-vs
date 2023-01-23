@@ -165,7 +165,7 @@ def get_headers(intro):
         target_headers[f'{target["name"]}'] = set()
     # Ask list of headers used in object from ninja
     object_deps = (
-        subprocess.check_output(['ninja', '-C', build_dir, '-t', 'deps'])
+        subprocess.check_output(['ninja', '-C', str(build_dir), '-t', 'deps'])
         .decode('utf-8')
         .replace('\r', '\n')
         .strip()
