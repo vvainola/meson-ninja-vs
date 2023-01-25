@@ -81,7 +81,7 @@ vs_nmake_tmpl = """\t<PropertyGroup>
 vs_custom_itemgroup_tmpl = """\t<ItemDefinitionGroup>
 \t\t<CustomBuild>
 \t\t\t<Command>{command}</Command>
-\t\t\t<Outputs>{out_file}</Outputs>
+\t\t\t<Outputs>{output}</Outputs>
 \t\t\t<AdditionalInputs>{additional_inputs}</AdditionalInputs>
 \t\t\t<VerifyInputsAndOutputsExist>{verify_io}</VerifyInputsAndOutputsExist>
 \t\t</CustomBuild>
@@ -382,7 +382,7 @@ class VisualStudioSolution:
             if vcxproj.is_run_target:
                 self.generate_run_proj(vcxproj, f'ninja -C &quot;{self.build_dir}&quot; {target["name"]}')
             else:
-                self.generate_build_proj(BuildTarget(target, guid, self.build_dir))
+                self.generate_build_proj(vcxproj, BuildTarget(target, guid, self.build_dir))
         # Ninja target that handles building whole solution
         ninja_deps = []
         for proj in self.vcxprojs:
@@ -414,7 +414,7 @@ class VisualStudioSolution:
 
         self.generate_solution(self.intro['projectinfo']['descriptive_name'] + '.sln')
 
-    def write_basic_custom_build(self, proj, command, additional_inputs="", verify_io=False):
+    def generate_basic_custom_build(self, proj, command, additional_inputs="", verify_io=False):
         proj_file = open(f'{self.build_dir}/{proj.id}.vcxproj', 'w', encoding='utf-8')
         proj_file.write(vs_header_tmpl.format(configuration=self.build_type, platform=self.platform))
         proj_file.write(vs_globals_tmpl.format(guid=proj.guid, platform=self.platform, name=proj.name))
@@ -441,7 +441,7 @@ class VisualStudioSolution:
             vs_custom_itemgroup_tmpl.format(
                 command=command,
                 additional_inputs=additional_inputs,
-                out_file=proj_output,
+                output=proj_output,
                 contents=proj_content,
                 verify_io=verify_io,
             )
@@ -456,7 +456,7 @@ class VisualStudioSolution:
         return proj_file
 
     def generate_run_proj(self, proj: VcxProj, cmd, dependencies=[]):
-        proj_file = self.write_basic_custom_build(proj, command=cmd + " $(LocalDebuggerCommandArguments)")
+        proj_file = self.generate_basic_custom_build(proj, command=cmd + " $(LocalDebuggerCommandArguments)")
 
         # Dependencies
         proj_file.write('\t<ItemGroup>\n')
@@ -469,7 +469,7 @@ class VisualStudioSolution:
         proj_file.close()
 
     def generate_regen_proj(self, proj):
-        proj_file = self.write_basic_custom_build(
+        proj_file = self.generate_basic_custom_build(
             proj,
             command=f'ninja build.ninja &amp;&amp; {sys.executable} &quot;{os.path.abspath(__file__)}&quot; --build_root &quot;{self.build_dir}&quot;',
             additional_inputs="build.ninja",
@@ -515,7 +515,7 @@ class VisualStudioSolution:
         rule.write('</Rule>')
 
         # Create the project file
-        proj_file = self.write_basic_custom_build(
+        proj_file = self.generate_basic_custom_build(
             proj,
             command=f'{sys.executable} &quot;{os.path.abspath(__file__)}&quot; --reconfigure --build_root=&quot;{self.build_dir}&quot;',
         )
@@ -530,13 +530,44 @@ class VisualStudioSolution:
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
 
-    def generate_build_proj(self, target: BuildTarget):
-        proj_file = open(f'{self.build_dir}/{target.id}.vcxproj', 'w', encoding='utf-8')
+    def generate_build_proj(self, proj: VcxProj, target : BuildTarget):
+        proj_file = open(f'{self.build_dir}/{proj.id}.vcxproj', 'w', encoding='utf-8')
         proj_file.write(vs_header_tmpl.format(configuration=self.build_type, platform=self.platform))
-        proj_file.write(vs_globals_tmpl.format(guid=target.guid, name=target.name, platform=self.platform))
+        proj_file.write(vs_globals_tmpl.format(guid=proj.guid, platform=self.platform, name=proj.name))
+        proj_file.write(vs_config_tmpl.format(config_type="Utility"))
+        # VS requires some contents in the project to be able to build it so a .dummy file is included for that
+        # but it is not created so that VS always rebuilds the target when starting debugger
+        proj_id_basename = os.path.basename(proj.id)
+        proj_temp_dir = f'{proj_id_basename}_temp'
+        proj_content_file = f'run_{proj_id_basename}.dummy'
+        proj_content = f'{proj_temp_dir}\\{proj_content_file}'
 
-        # NMake
-        proj_file.write(vs_config_tmpl.format(config_type="Makefile"))
+        proj_file.write(
+            vs_propertygrp_tmpl.format(
+                out_dir='.\\', intermediate_dir=f'.\\{proj_temp_dir}\\', output=f'{os.path.basename(target.output)}'
+            )
+        )
+
+        # Single project builds are skipped when building whole solution by creating
+        # a temp file, wait 200ms and check if there is more than 1 temp file. If there
+        # is, it indicates that are other projects building simultaneously and the whole
+        # solution will be built by separate ninja project. If there is still only 1 temp
+        # file, the project has been started alone and ninja will build only that project
+        ninja = f'ninja -C &quot;{self.build_dir}&quot;'
+        compile = f'''
+&quot;{sys.executable}&quot; {self.private_dir}\\parallel_sleep.py &quot;{target.name}&quot;
+if %ERRORLEVEL% == 1 ({ninja} &quot;{target.output}&quot;) else (exit /b 0)
+del /s /q /f {self.tmp_dir}\\* > NUL
+'''
+        proj_file.write(
+            vs_custom_itemgroup_tmpl.format(
+                command=compile,
+                additional_inputs="",
+                output=target.output,
+                contents=proj_content,
+                verify_io=False,
+            )
+        )
 
         # Sources in json are per-language so collect all languages in case of mixed c & cpp. Adding all
         # options to project settings is wrong but intellisense does not work properly if the settings
@@ -563,28 +594,6 @@ class VisualStudioSolution:
                     all_additional_options.append(par)
                     lang_src[lang]['additional_options'].append(par)
             lang_src[lang]['sources'] = target_src['sources'] + target_src['generated_sources']
-        # Single project builds are skipped when building whole solution by creating
-        # a temp file, wait 200ms and check if there is more than 1 temp file. If there
-        # is, it indicates that are other projects building simultaneously and the whole
-        # solution will be built by separate ninja project. If there is still only 1 temp
-        # file, the project has been started alone and ninja will build only that project
-        ninja = f'ninja -C &quot;{self.build_dir}&quot;'
-        compile = f'''
-&quot;{sys.executable}&quot; {self.private_dir}\\parallel_sleep.py &quot;{target.name}&quot;
-if %ERRORLEVEL% == 1 ({ninja} &quot;{target.output}&quot;) else (exit /b 0)
-del /s /q /f {self.tmp_dir}\\* > NUL
-'''
-        proj_file.write(
-            vs_nmake_tmpl.format(
-                output=os.path.basename(target.output),
-                build_cmd=f'{compile}',
-                clean_cmd=f'{ninja} clean',
-                rebuild_cmd=f'{ninja} clean \n {compile}',
-                includes=";".join(all_include_paths),
-                preprocessor_macros=";".join(all_preprocessor_macros),
-                additional_options=" ".join(all_additional_options),
-            )
-        )
 
         # Files
         proj_file.write('\t<ItemGroup>\n')
