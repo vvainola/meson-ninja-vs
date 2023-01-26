@@ -85,6 +85,11 @@ vs_custom_itemgroup_tmpl = """\t<ItemDefinitionGroup>
 \t\t\t<AdditionalInputs>{additional_inputs}</AdditionalInputs>
 \t\t\t<VerifyInputsAndOutputsExist>{verify_io}</VerifyInputsAndOutputsExist>
 \t\t</CustomBuild>
+\t\t<ClCompile>
+\t\t\t<LanguageStandard>{cpp_std}</LanguageStandard>
+\t\t\t<LanguageStandard_C>{c_std}</LanguageStandard_C>
+\t\t\t<Outputs></Outputs>
+\t\t</ClCompile>
 \t</ItemDefinitionGroup>
 \t<ItemGroup>
 \t\t<CustomBuild Include="{contents}" />
@@ -236,6 +241,14 @@ def get_introspect_files(build_dir):
         target_dir = Path(os.path.dirname(target['defined_in']))
         prefix = target_dir.relative_to(src_dir)
         target['id'] = str(prefix / target['id'])
+    buildoptions = {}
+    for opt in intro['buildoptions']:
+        buildoptions[opt['name']] = opt
+    intro['buildoptions'] = buildoptions
+
+    # Set C and C++ in VS format e.g. c++20 -> stdcpp20
+    intro['buildoptions']['cpp_std']['value'] = 'std' + intro['buildoptions']['cpp_std']['value'].replace('none', 'Default').replace('+', 'p')
+    intro['buildoptions']['c_std']['value'] = 'std' + intro['buildoptions']['c_std']['value'].replace('none', 'Default')
     return intro
 
 
@@ -321,9 +334,7 @@ class VisualStudioSolution:
         self.vcxprojs = []
 
         self.intro = get_introspect_files(self.build_dir)
-        for option in self.intro['buildoptions']:
-            if option['name'] == 'buildtype':
-                self.build_type = option['value']
+        self.build_type = self.intro['buildoptions']['buildtype']['value']
         self.source_dir = self.intro['meson_info']['directories']['source']
         self.subdirs = set()
         build_to_run_subdir = "Build to run"
@@ -444,6 +455,8 @@ class VisualStudioSolution:
                 output=proj_output,
                 contents=proj_content,
                 verify_io=verify_io,
+                cpp_std=self.intro['buildoptions']['cpp_std']['value'],
+                c_std=self.intro['buildoptions']['c_std']['value']
             )
         )
         # Create dummy file and output if needed
@@ -484,13 +497,13 @@ class VisualStudioSolution:
         rule.write(vs_meson_options_rule)
         rule.write('\t<Rule.Categories>\n')
         added_categories = []
-        for opt in self.intro['buildoptions']:
+        for opt_name, opt in self.intro['buildoptions'].items():
             category = opt['section']
             if category not in added_categories:
                 added_categories.append(category)
                 rule.write(f'\t\t<Category Name="{category}" DisplayName="{category}" Description="" />\n')
         rule.write('\t</Rule.Categories>\n')
-        for opt in self.intro['buildoptions']:
+        for opt_name, opt in self.intro['buildoptions'].items():
             opt_name = opt['name'].replace('.', '__').replace(":", "-")
             opt_type = opt['type']
             category = opt['section']
@@ -520,7 +533,7 @@ class VisualStudioSolution:
             command=f'{sys.executable} &quot;{os.path.abspath(__file__)}&quot; --reconfigure --build_root=&quot;{self.build_dir}&quot;',
         )
         proj_file.write('\t<PropertyGroup>\n')
-        for opt in self.intro['buildoptions']:
+        for opt_name, opt in self.intro['buildoptions'].items():
             opt_name = opt["name"].replace(".", "__").replace(":", "-")
             proj_file.write(f'\t\t<meson_{opt_name}>{opt["value"]}</meson_{opt_name}>\n')
         proj_file.write('\t\t<UseDefaultPropertyPageSchemas>false</UseDefaultPropertyPageSchemas>')
@@ -566,6 +579,8 @@ del /s /q /f {self.tmp_dir}\\* > NUL
                 output=target.output,
                 contents=proj_content,
                 verify_io=False,
+                cpp_std=self.intro['buildoptions']['cpp_std']['value'],
+                c_std=self.intro['buildoptions']['c_std']['value']
             )
         )
 
@@ -594,6 +609,12 @@ del /s /q /f {self.tmp_dir}\\* > NUL
                     all_additional_options.append(par)
                     lang_src[lang]['additional_options'].append(par)
             lang_src[lang]['sources'] = target_src['sources'] + target_src['generated_sources']
+        proj_file.write(f'''
+\t<PropertyGroup>
+\t\t<IncludePath>{";".join(all_include_paths)};$(VC_IncludePath);$(WindowsSDK_IncludePath);$(IncludePath)</IncludePath>
+\t</PropertyGroup>
+''')
+         
 
         # Files
         proj_file.write('\t<ItemGroup>\n')
@@ -601,14 +622,14 @@ del /s /q /f {self.tmp_dir}\\* > NUL
         # so it is possible that same header is included with different macros. Some include paths need to be set to the
         # header because otherwise intellisense cannot jump from header to another header
         for src in target.extra_files + self.headers[target.name]:
-            proj_file.write(f'\t\t<ClCompile Include="{src}">\n')
+            proj_file.write(f'\t\t<ClInclude Include="{src}">\n')
             proj_file.write(
                 f'\t\t\t<AdditionalIncludeDirectories>{";".join(all_include_paths)}</AdditionalIncludeDirectories>\n'
             )
             proj_file.write(
                 f'\t\t\t<PreprocessorDefinitions>{";".join(all_preprocessor_macros)}</PreprocessorDefinitions>\n'
             )
-            proj_file.write(f'\t\t</ClCompile>\n')
+            proj_file.write(f'\t\t</ClInclude>\n')
         # The lang_src contains language specific settings
         for _, lang in lang_src.items():
             for src in lang['sources']:
