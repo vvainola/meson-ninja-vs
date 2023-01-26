@@ -283,11 +283,7 @@ def get_arch(build_dir):
 
 def run_reconfigure(build_dir):
     build_dir = Path(build_dir)
-    # Collect options into a dict with name for easier lookup
     intro = get_introspect_files(build_dir)
-    buildoptions = {}
-    for opt in intro['buildoptions']:
-        buildoptions[opt['name']] = opt
 
     reconfigure_proj = build_dir / 'Reconfigure_project.vcxproj'
     proj_contents = ""
@@ -305,7 +301,7 @@ def run_reconfigure(build_dir):
             continue
         opt_name = opt_name.group(0).replace("__", ".").replace("-", ":")
         opt_value = opt_value.group(0)
-        if opt_value != str(buildoptions[opt_name]['value']):
+        if opt_value != str(intro['buildoptions'][opt_name]['value']):
             changed_options.append(f'-D{opt_name}=\"{opt_value}\"')
     meson = get_meson_command(build_dir)
     if changed_options != []:
