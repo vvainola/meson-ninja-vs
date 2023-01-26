@@ -365,20 +365,6 @@ class VisualStudioSolution:
         self.vcxprojs.append(self.reconfigure_proj)
         self.generate_reconfigure_proj(self.reconfigure_proj)
 
-        # Ninja target that handles building whole solution
-        ninja_deps = []
-        for proj in self.vcxprojs:
-            if proj.build_by_default:
-                ninja_deps.append(proj)
-        self.ninja_proj = VcxProj(
-            "Ninja",
-            "Ninja",
-            generate_guid_from_path(self.build_dir / 'ninja'),
-            build_by_default=True,
-            is_run_target=True,
-            subdir=build_to_run_subdir,
-        )
-        self.vcxprojs.append(self.ninja_proj)
         # Individual build targets
         for target in self.intro['targets']:
             subdir = os.path.dirname(os.path.relpath(target['defined_in'], self.source_dir))
@@ -397,6 +383,20 @@ class VisualStudioSolution:
                 self.generate_run_proj(vcxproj, f'ninja -C &quot;{self.build_dir}&quot; {target["name"]}')
             else:
                 self.generate_build_proj(vcxproj, BuildTarget(target, guid, self.build_dir))
+        # Ninja target that handles building whole solution
+        ninja_deps = []
+        for proj in self.vcxprojs:
+            if proj.build_by_default:
+                ninja_deps.append(proj)
+        self.ninja_proj = VcxProj(
+            "Ninja",
+            "Ninja",
+            generate_guid_from_path(self.build_dir / 'ninja'),
+            build_by_default=True,
+            is_run_target=True,
+            subdir=build_to_run_subdir,
+        )
+        self.vcxprojs.append(self.ninja_proj)
         # Delete tmp files so that single project builds won't get stuck
         ninja_cmd = f'del /s /q /f &quot;{self.tmp_dir}\\*&quot; > NUL \n ninja'
         self.generate_run_proj(self.ninja_proj, ninja_cmd, ninja_deps)
