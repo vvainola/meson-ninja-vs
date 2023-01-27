@@ -32,7 +32,7 @@ import shutil
 import glob
 
 vs_header_tmpl = """<?xml version="1.0" ?>
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" DefaultTargets="Build" ToolsVersion="4.0">
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" DefaultTargets="Build">
 \t<ItemGroup Label="ProjectConfigurations">
 \t\t<ProjectConfiguration Include="{configuration}|{platform}">
 \t\t\t<Configuration>{configuration}</Configuration>
