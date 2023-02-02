@@ -49,7 +49,7 @@ vs_globals_tmpl = """\t<PropertyGroup Label="Globals">
 \t<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>\n"""
 
 vs_config_tmpl = """\t<PropertyGroup Label="Configuration">
-\t\t<PlatformToolset>v142</PlatformToolset>
+\t\t<PlatformToolset>{platform_toolset}</PlatformToolset>
 \t\t<ConfigurationType>{config_type}</ConfigurationType>
 \t</PropertyGroup>
 \t<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/>
@@ -269,16 +269,22 @@ def get_meson_command(build_dir):
 
 
 def get_arch(build_dir):
-    with open(Path(build_dir) / 'build.ninja', 'r') as f:
-        # rule cpp_LINKER
-        # command = "link" $ARGS /MACHINE:x86
-        lines = f.readlines()
-        for i, line in enumerate(lines):
-            if line == "rule cpp_LINKER\n":
-                command = re.search('(?<=(\/MACHINE:))[0-9a-zA-Z]+\w', lines[i + 1])
-                if command != None:
-                    return command.group(0)
-    raise Exception("Unable to find machine architecture from build.ninja")
+    with open(Path(build_dir) / 'meson-logs/meson-log.txt', 'r') as f:
+        txt = f.read()
+        arch = re.search("(?<=(Host machine cpu: )).*$", txt, re.MULTILINE)
+        if arch != None:
+            return arch.group(0)
+    raise Exception("Unable to find machine architecture from meson-log.txt")
+
+def get_platform_toolset(build_dir):
+    with open(Path(build_dir) / 'meson-logs/meson-log.txt', 'r') as f:
+        txt = f.read()
+        if "C++ compiler for the build machine: cl (msvc 19.3" in txt:
+            return "v143"
+        elif "C++ compiler for the build machine: cl (msvc 19.2" in txt:
+            return "v142"
+    raise Exception("Unable to find machine platform toolset from meson-log.txt")
+    
 
 
 def run_reconfigure(build_dir):
@@ -425,7 +431,7 @@ class VisualStudioSolution:
         proj_file = open(f'{self.build_dir}/{proj.id}.vcxproj', 'w', encoding='utf-8')
         proj_file.write(vs_header_tmpl.format(configuration=self.build_type, platform=self.platform))
         proj_file.write(vs_globals_tmpl.format(guid=proj.guid, platform=self.platform, name=proj.name))
-        proj_file.write(vs_config_tmpl.format(config_type="Utility"))
+        proj_file.write(vs_config_tmpl.format(config_type="Utility", platform_toolset=get_platform_toolset(self.build_dir)))
         # VS requires some contents in the project to be able to build it so a .dummy file is created for that
         proj_id_basename = os.path.basename(proj.id)
         proj_temp_dir = f'{proj_id_basename}_temp'
@@ -543,7 +549,7 @@ class VisualStudioSolution:
         proj_file = open(f'{self.build_dir}/{proj.id}.vcxproj', 'w', encoding='utf-8')
         proj_file.write(vs_header_tmpl.format(configuration=self.build_type, platform=self.platform))
         proj_file.write(vs_globals_tmpl.format(guid=proj.guid, platform=self.platform, name=proj.name))
-        proj_file.write(vs_config_tmpl.format(config_type="Utility"))
+        proj_file.write(vs_config_tmpl.format(config_type="Utility", platform_toolset=get_platform_toolset(self.build_dir)))
         # VS requires some contents in the project to be able to build it so a .dummy file is included for that
         # but it is not created so that VS always rebuilds the target when starting debugger
         proj_id_basename = os.path.basename(proj.id)
