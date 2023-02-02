@@ -599,8 +599,9 @@ del /s /q /f {self.tmp_dir}\\* > NUL
                     all_include_paths.append(par[2:])
                     lang_src[lang]['includes'].append(par[2:])
                 elif par.startswith('-D') or par.startswith('/D'):
-                    all_preprocessor_macros.append(par[2:])
-                    lang_src[lang]['preprocessor_macros'].append(par[2:])
+                    define = par[2:].replace("\"", "&quot;")
+                    all_preprocessor_macros.append(define)
+                    lang_src[lang]['preprocessor_macros'].append(define)
                 else:
                     all_additional_options.append(par)
                     lang_src[lang]['additional_options'].append(par)
@@ -618,26 +619,26 @@ del /s /q /f {self.tmp_dir}\\* > NUL
         # so it is possible that same header is included with different macros. Some include paths need to be set to the
         # header because otherwise intellisense cannot jump from header to another header
         for src in target.extra_files + self.headers[target.name]:
-            proj_file.write(f'\t\t<ClInclude Include="{src}">\n')
+            proj_file.write(f'\t\t<CLInclude Include="{src}">\n')
             proj_file.write(
-                f'\t\t\t<AdditionalIncludeDirectories>{";".join(all_include_paths)}</AdditionalIncludeDirectories>\n'
+                f'\t\t\t<AdditionalIncludeDirectories>{";".join(all_include_paths)};%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>\n'
             )
             proj_file.write(
-                f'\t\t\t<PreprocessorDefinitions>{";".join(all_preprocessor_macros)}</PreprocessorDefinitions>\n'
+                f'\t\t\t<PreprocessorDefinitions>{";".join(all_preprocessor_macros)};%(PreprocessorDefinitions)</PreprocessorDefinitions>\n'
             )
-            proj_file.write(f'\t\t</ClInclude>\n')
+            proj_file.write(f'\t\t</CLInclude>\n')
         # The lang_src contains language specific settings
         for _, lang in lang_src.items():
             for src in lang['sources']:
                 proj_file.write(f'\t\t<ClCompile Include="{src}">\n')
                 proj_file.write(
-                    f'\t\t\t<AdditionalIncludeDirectories>{";".join(lang["includes"])}</AdditionalIncludeDirectories>\n'
+                    f'\t\t\t<AdditionalIncludeDirectories>{";".join(lang["includes"])};%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>\n'
                 )
                 proj_file.write(
-                    f'\t\t\t<PreprocessorDefinitions>{";".join(lang["preprocessor_macros"])}</PreprocessorDefinitions>\n'
+                    f'\t\t\t<PreprocessorDefinitions>{";".join(lang["preprocessor_macros"])};%(PreprocessorDefinitions)</PreprocessorDefinitions>\n'
                 )
                 proj_file.write(
-                    f'\t\t\t<AdditionalOptions>{" ".join(lang["additional_options"])}</AdditionalOptions>\n'
+                    f'\t\t\t<AdditionalOptions>{" ".join(lang["additional_options"])} %(AdditionalOptions)</AdditionalOptions>\n'
                 )
                 proj_file.write(f'\t\t</ClCompile>\n')
         proj_file.write('\t</ItemGroup>\n')
