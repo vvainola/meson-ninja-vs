@@ -247,8 +247,10 @@ def get_introspect_files(build_dir):
     intro['buildoptions'] = buildoptions
 
     # Set C and C++ in VS format e.g. c++20 -> stdcpp20
-    intro['buildoptions']['cpp_std']['value'] = 'std' + intro['buildoptions']['cpp_std']['value'].replace('none', 'Default').replace('+', 'p')
-    intro['buildoptions']['c_std']['value'] = 'std' + intro['buildoptions']['c_std']['value'].replace('none', 'Default')
+    if 'cpp_std' in intro['buildoptions']:
+        intro['buildoptions']['cpp_std']['value'] = 'std' + intro['buildoptions']['cpp_std']['value'].replace('none', 'Default').replace('+', 'p')
+    if 'c_std' in intro['buildoptions']:
+        intro['buildoptions']['c_std']['value'] = 'std' + intro['buildoptions']['c_std']['value'].replace('none', 'Default')
     return intro
 
 
@@ -457,8 +459,8 @@ class VisualStudioSolution:
                 output=proj_output,
                 contents=proj_content,
                 verify_io=verify_io,
-                cpp_std=self.intro['buildoptions']['cpp_std']['value'],
-                c_std=self.intro['buildoptions']['c_std']['value']
+                cpp_std=self.intro['buildoptions'].get('cpp_std', {}).get('value', 'Default'),
+                c_std=self.intro['buildoptions'].get('c_std', {}).get('value', 'Default')
             )
         )
         # Create dummy file and output if needed
@@ -581,8 +583,8 @@ del /s /q /f {self.tmp_dir}\\* > NUL
                 output=target.output,
                 contents=proj_content,
                 verify_io=False,
-                cpp_std=self.intro['buildoptions']['cpp_std']['value'],
-                c_std=self.intro['buildoptions']['c_std']['value']
+                cpp_std=self.intro['buildoptions'].get('cpp_std', {}).get('value', 'Default'),
+                c_std=self.intro['buildoptions'].get('c_std', {}).get('value', 'Default')
             )
         )
 
