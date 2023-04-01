@@ -93,7 +93,12 @@ vs_custom_itemgroup_tmpl = """\t<ItemDefinitionGroup>
 \t</ItemDefinitionGroup>
 \t<ItemGroup>
 \t\t<CustomBuild Include="{contents}" />
-\t</ItemGroup>\n"""
+\t</ItemGroup>
+\t<ItemDefinitionGroup>
+\t\t<Link>
+\t\t\t<SubSystem>Console</SubSystem>
+\t\t</Link>
+\t</ItemDefinitionGroup>\n"""
 
 vs_dependency_tmpl = """\t\t<ProjectReference Include="{vcxproj_name}">
 \t\t\t<Project>{{{project_guid}}}</Project>
