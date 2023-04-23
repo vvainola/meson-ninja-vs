@@ -610,6 +610,8 @@ del /s /q /f {self.tmp_dir}\\* > NUL
         all_additional_options = []
         lang_src = {}
         for target_src in target.target_sources:
+            if 'compiler' not in target_src:
+                continue
             lang = target_src['language']
             lang_src[lang] = {}
             lang_src[lang]['language'] = lang
