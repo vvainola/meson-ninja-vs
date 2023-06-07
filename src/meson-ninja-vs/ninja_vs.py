@@ -300,7 +300,7 @@ def get_platform_toolset(build_dir, private_dir):
             platform_toolset_txt.write_text("v142")
             return "v142"
     raise Exception("Unable to find machine platform toolset from meson-log.txt")
-    
+
 
 
 def run_reconfigure(build_dir):
@@ -412,8 +412,19 @@ class VisualStudioSolution:
                 self.generate_run_proj(vcxproj, f'ninja -C &quot;{self.build_dir}&quot; {target["name"]}')
             else:
                 self.generate_build_proj(vcxproj, BuildTarget(target, guid, self.build_dir))
+        # Regen
+        self.regen_proj = VcxProj(
+            "Regenerate solution",
+            "Regenerate_solution",
+            generate_guid_from_path(self.build_dir / 'regen'),
+            build_by_default=True,
+            is_run_target=True,
+            subdir=build_to_run_subdir,
+        )
+        self.vcxprojs.append(self.regen_proj)
+        self.generate_regen_proj(self.regen_proj)
         # Ninja target that handles building whole solution
-        ninja_deps = []
+        ninja_deps = [self.regen_proj]
         for proj in self.vcxprojs:
             if proj.build_by_default:
                 ninja_deps.append(proj)
@@ -429,18 +440,6 @@ class VisualStudioSolution:
         # Delete tmp files so that single project builds won't get stuck
         ninja_cmd = f'del /s /q /f &quot;{self.tmp_dir}\\*&quot; > NUL \n ninja'
         self.generate_run_proj(self.ninja_proj, ninja_cmd, ninja_deps)
-        # Regen
-        self.regen_proj = VcxProj(
-            "Regenerate solution",
-            "Regenerate_solution",
-            generate_guid_from_path(self.build_dir / 'regen'),
-            build_by_default=True,
-            is_run_target=True,
-            subdir=build_to_run_subdir,
-        )
-        self.vcxprojs.append(self.regen_proj)
-        self.generate_regen_proj(self.regen_proj)
-
         self.generate_solution(self.intro['projectinfo']['descriptive_name'] + '.sln')
 
     def generate_basic_custom_build(self, proj, command, additional_inputs="", verify_io=False):
@@ -635,7 +634,7 @@ del /s /q /f {self.tmp_dir}\\* > NUL
 \t\t<IncludePath>{";".join(all_include_paths)};$(VC_IncludePath);$(WindowsSDK_IncludePath);$(IncludePath)</IncludePath>
 \t</PropertyGroup>
 ''')
-         
+
 
         # Files
         proj_file.write('\t<ItemGroup>\n')
