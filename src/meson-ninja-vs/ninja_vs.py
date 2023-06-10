@@ -209,7 +209,7 @@ def get_headers(intro):
             try:
                 h_path = (build_dir / h).absolute().resolve()
                 if (source_dir / h_path.relative_to(source_dir)).exists():
-                    filt_headers.append(h.absolute().resolve())
+                    filt_headers.append(h_path.absolute().resolve())
             except ValueError:
                 pass
         filt_target_headers[target] = filt_headers
@@ -619,6 +619,7 @@ if %ERRORLEVEL% == 1 ({ninja} &quot;{target.output}&quot;) else (exit /b 0)
         # Sources in json are per-language so collect all languages in case of mixed c & cpp. Adding all
         # options to project settings is wrong but intellisense does not work properly if the settings
         # are added only to file
+        all_src = []
         all_include_paths = []
         all_preprocessor_macros = []
         all_additional_options = []
@@ -668,6 +669,7 @@ if %ERRORLEVEL% == 1 ({ninja} &quot;{target.output}&quot;) else (exit /b 0)
         # The lang_src contains language specific settings
         for _, lang in lang_src.items():
             for src in lang['sources']:
+                all_src.append(src)
                 proj_file.write(f'\t\t<ClCompile Include="{src}">\n')
                 proj_file.write(
                     f'\t\t\t<AdditionalIncludeDirectories>{";".join(lang["includes"])};%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>\n'
@@ -692,19 +694,48 @@ if %ERRORLEVEL% == 1 ({ninja} &quot;{target.output}&quot;) else (exit /b 0)
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
 
-        # Add filter file so that headers are in own folder
+        ###############
+        # Add filters to have folder structure
+        ###############
+        # Collect paths for filters
+        src_paths = set()
+        for src in all_src + self.headers[target.name]:
+            path = os.path.dirname(os.path.relpath(src, self.source_dir))
+            src_paths.add(path)
+            # All intermediate folders need to be added as well if there are
+            # subfolders with more folders but no files
+            split_path = os.path.split(path)
+            intermediate_path = split_path[0]
+            if (intermediate_path == ''):
+                continue
+            src_paths.add(intermediate_path)
+            for p in os.path.split(path)[1:]:
+                intermediate_path += f'\\{p}'
+                src_paths.add(intermediate_path)
+
         filter_file = open(f'{self.build_dir}/{target.id}.vcxproj.filters', 'w', encoding='utf-8')
         filter_file.write(vs_start_filter)
+
+        # Create filter folders
         filter_file.write('\t<ItemGroup>\n')
-        for h in self.headers[target.name]:
-            filter_file.write(f'\t\t<ClCompile Include="{h}">\n')
-            filter_file.write(f'\t\t\t<Filter>Headers</Filter>\n')
-            filter_file.write(f'\t\t</ClCompile>\n')
+        for src_path in src_paths:
+            filter_file.write(f'\t\t<Filter Include="{src_path}">\n')
+            filter_file.write(f'\t\t\t<UniqueIdentifier>{{{generate_guid()}}}</UniqueIdentifier>\n')
+            filter_file.write('\t\t</Filter>\n')
         filter_file.write('\t</ItemGroup>\n')
+
+        # Add files to correct folder
         filter_file.write('\t<ItemGroup>\n')
-        filter_file.write('\t\t<Filter Include="Headers">\n')
-        filter_file.write(f'\t\t\t<UniqueIdentifier>{{{generate_guid()}}}</UniqueIdentifier>\n')
-        filter_file.write('\t\t</Filter>\n')
+        for f in all_src:
+            path = os.path.dirname(os.path.relpath(f, self.source_dir))
+            filter_file.write(f'\t\t<ClCompile Include="{f}">\n')
+            filter_file.write(f'\t\t\t<Filter>{path}</Filter>\n')
+            filter_file.write(f'\t\t</ClCompile>\n')
+        for h in self.headers[target.name]:
+            path = os.path.dirname(os.path.relpath(h, self.source_dir))
+            filter_file.write(f'\t\t<ClInclude Include="{h}">\n')
+            filter_file.write(f'\t\t\t<Filter>{path}</Filter>\n')
+            filter_file.write(f'\t\t</ClInclude>\n')
         filter_file.write('\t</ItemGroup>\n')
         filter_file.write('</Project>\n')
 
