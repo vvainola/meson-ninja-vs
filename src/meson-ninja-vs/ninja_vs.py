@@ -155,18 +155,6 @@ class VcxProj:
         self.subdir = subdir
 
 
-def try_find_file(source_dir, filename):
-    # check source dir
-    for f in glob.glob(f'{source_dir}/**/{filename}', recursive=True):
-        return f
-    try:
-        # try PATH
-        f = subprocess.check_output(['where', f'{filename}'], stderr=subprocess.DEVNULL).decode('utf-8').strip()
-        return f
-    except subprocess.SubprocessError:
-        return "None"
-
-
 def get_headers(intro):
     build_dir = Path(intro['meson_info']['directories']['build'])
     source_dir = Path(intro['meson_info']['directories']['source'])
