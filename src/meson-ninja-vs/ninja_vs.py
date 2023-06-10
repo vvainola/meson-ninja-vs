@@ -30,6 +30,7 @@ import json
 import uuid
 import shutil
 import glob
+import typing as T
 
 vs_header_tmpl = """<?xml version="1.0" ?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" DefaultTargets="Build">
@@ -349,7 +350,7 @@ class VisualStudioSolution:
             self.platform = 'Win32'
         else:
             self.platform = 'x64'
-        self.vcxprojs = []
+        self.vcxprojs : T.List[VcxProj] = []
 
         self.intro = get_introspect_files(self.build_dir)
         self.build_type = self.intro['buildoptions']['buildtype']['value']
@@ -395,7 +396,7 @@ class VisualStudioSolution:
         self.generate_reconfigure_proj(reconfigure_proj)
 
         # Prebuild
-        prebuild_proj = VcxProj(
+        self.prebuild_proj = VcxProj(
             "Prebuild",
             "Prebuild",
             generate_guid_from_path(self.build_dir / 'prebuild'),
@@ -404,8 +405,8 @@ class VisualStudioSolution:
             subdir=build_to_run_subdir,
         )
         prebuild_cmd = f'del /s /q /f &quot;{self.tmp_dir}\\*&quot; > NUL'
-        self.generate_run_proj(prebuild_proj, prebuild_cmd)
-        self.vcxprojs.append(prebuild_proj)
+        self.generate_run_proj(self.prebuild_proj, prebuild_cmd)
+        self.vcxprojs.append(self.prebuild_proj)
 
         # Individual build targets
         for target in self.intro['targets']:
@@ -422,9 +423,9 @@ class VisualStudioSolution:
             )
             self.vcxprojs.append(vcxproj)
             if vcxproj.is_run_target:
-                self.generate_run_proj(vcxproj, f'ninja -C &quot;{self.build_dir}&quot; {target["name"]}', [prebuild_proj])
+                self.generate_run_proj(vcxproj, f'ninja -C &quot;{self.build_dir}&quot; {target["name"]}')
             else:
-                self.generate_build_proj(vcxproj, BuildTarget(target, guid, self.build_dir), [prebuild_proj])
+                self.generate_build_proj(vcxproj, BuildTarget(target, guid, self.build_dir))
         # Regen
         regen_proj = VcxProj(
             "Regenerate solution",
@@ -435,7 +436,7 @@ class VisualStudioSolution:
             subdir=build_to_run_subdir,
         )
         self.vcxprojs.append(regen_proj)
-        self.generate_regen_proj(regen_proj, [prebuild_proj])
+        self.generate_regen_proj(regen_proj)
         # Ninja target that handles building whole solution
         self.ninja_proj = VcxProj(
             "Ninja",
@@ -447,7 +448,7 @@ class VisualStudioSolution:
         )
         self.vcxprojs.append(self.ninja_proj)
         ninja_cmd = f'echo NUL > &quot;{self.tmp_dir}\\ninja&quot; \n ninja'
-        self.generate_run_proj(self.ninja_proj, ninja_cmd, [regen_proj, prebuild_proj])
+        self.generate_run_proj(self.ninja_proj, ninja_cmd, [regen_proj])
         self.generate_solution(self.intro['projectinfo']['descriptive_name'] + '.sln')
 
     def generate_basic_custom_build(self, proj, command, additional_inputs="", verify_io=False):
@@ -506,20 +507,13 @@ class VisualStudioSolution:
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
 
-    def generate_regen_proj(self, proj, dependencies):
+    def generate_regen_proj(self, proj):
         proj_file = self.generate_basic_custom_build(
             proj,
             command=f'echo NUL > &quot;{self.tmp_dir}\\regen&quot; \n ninja build.ninja &amp;&amp; {sys.executable} &quot;{os.path.abspath(__file__)}&quot; --build_root &quot;{self.build_dir}&quot;',
             additional_inputs="build.ninja",
             verify_io=True,
         )
-        # Dependencies
-        proj_file.write('\t<ItemGroup>\n')
-        for dep in dependencies:
-            proj_file.write(
-                vs_dependency_tmpl.format(vcxproj_name=f'{dep.id}.vcxproj', project_guid=dep.guid, link_deps='false')
-            )
-        proj_file.write('\t</ItemGroup>\n')
 
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
@@ -576,7 +570,7 @@ class VisualStudioSolution:
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
 
-    def generate_build_proj(self, proj: VcxProj, target : BuildTarget, dependencies):
+    def generate_build_proj(self, proj: VcxProj, target : BuildTarget):
         proj_file = open(f'{self.build_dir}/{proj.id}.vcxproj', 'w', encoding='utf-8')
         proj_file.write(vs_header_tmpl.format(configuration=self.build_type, platform=self.platform))
         proj_file.write(vs_globals_tmpl.format(guid=proj.guid, platform=self.platform, name=proj.name))
@@ -683,14 +677,6 @@ if %ERRORLEVEL% == 1 ({ninja} &quot;{target.output}&quot;) else (exit /b 0)
                 proj_file.write(f'\t\t</ClCompile>\n')
         proj_file.write('\t</ItemGroup>\n')
 
-        # Dependencies
-        proj_file.write('\t<ItemGroup>\n')
-        for dep in dependencies:
-            proj_file.write(
-                vs_dependency_tmpl.format(vcxproj_name=f'{dep.id}.vcxproj', project_guid=dep.guid, link_deps='false')
-            )
-        proj_file.write('\t</ItemGroup>\n')
-
         proj_file.write(vs_end_proj_tmpl)
         proj_file.close()
 
@@ -745,6 +731,11 @@ if %ERRORLEVEL% == 1 ({ninja} &quot;{target.output}&quot;) else (exit /b 0)
         sln.write('# Visual Studio 2019\n')
         for proj in self.vcxprojs:
             sln.write(f'Project("{cpp_guid}") = "{proj.name}", "{proj.id}.vcxproj", "{{{proj.guid}}}"\n')
+            # Add prebuild as a dependency to all other projects
+            if proj != self.prebuild_proj:
+                sln.write('\tProjectSection(ProjectDependencies) = postProject\n')
+                sln.write(f'\t\t{{{self.prebuild_proj.guid}}} = {{{self.prebuild_proj.guid}}}\n')
+                sln.write('\tEndProjectSection\n')
             sln.write('EndProject\n')
         # Targets in correct subfolder
         subdir_guids = {}
