@@ -803,6 +803,10 @@ if __name__ == '__main__':
     parser.add_argument('--reconfigure', action='store_true', help='Run reconfigure in the build root')
     args = parser.parse_args()
 
+    # Meson uses VSCMD_VER envvar to detect whether VS supports modules and sometimes this
+    # envvar goes missing on regen and the regen fails.
+    if 'VSCMD_VER' not in os.environ and 'VISUALSTUDIOVERSION' in os.environ:
+        os.environ['VSCMD_VER'] = os.environ['VISUALSTUDIOVERSION']
     if args.reconfigure:
         run_reconfigure(args.build_root)
     VisualStudioSolution(args.build_root)
