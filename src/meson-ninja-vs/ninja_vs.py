@@ -129,6 +129,8 @@ vs_meson_options_rule = """<?xml version="1.0" encoding="utf-8"?>
 directory_guid = '{2150E333-8FDC-42A3-9474-1A3956D46DE8}'
 cpp_guid = '{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}'
 
+SET_VSCMD_VER='if not defined VSCMD_VER (set VSCMD_VER=%VISUALSTUDIOVERSION%)'
+NINJA_CMD = f'{SET_VSCMD_VER} &amp;&amp; ninja'
 
 class BuildTarget:
     def __init__(self, intro_target, guid, build_dir):
@@ -359,7 +361,7 @@ class VisualStudioSolution:
             subdir=build_to_run_subdir,
         )
         self.vcxprojs.append(install_proj)
-        self.generate_run_proj(install_proj, f'ninja install')
+        self.generate_run_proj(install_proj, f'{NINJA_CMD} install')
         # Run tests
         test_proj = VcxProj(
             "Run tests",
@@ -411,7 +413,7 @@ class VisualStudioSolution:
             )
             self.vcxprojs.append(vcxproj)
             if vcxproj.is_run_target:
-                self.generate_run_proj(vcxproj, f'ninja -C &quot;{self.build_dir}&quot; {target["name"]}')
+                self.generate_run_proj(vcxproj, f'{NINJA_CMD} -C &quot;{self.build_dir}&quot; {target["name"]}')
             else:
                 self.generate_build_proj(vcxproj, BuildTarget(target, guid, self.build_dir))
         # Regen
@@ -435,7 +437,7 @@ class VisualStudioSolution:
             subdir=build_to_run_subdir,
         )
         self.vcxprojs.append(self.ninja_proj)
-        ninja_cmd = f'echo NUL > &quot;{self.tmp_dir}\\ninja&quot; \n ninja'
+        ninja_cmd = f'echo NUL > &quot;{self.tmp_dir}\\ninja&quot; \n {NINJA_CMD}'
         self.generate_run_proj(self.ninja_proj, ninja_cmd, [regen_proj])
         self.generate_solution(self.intro['projectinfo']['descriptive_name'] + '.sln')
 
@@ -498,7 +500,7 @@ class VisualStudioSolution:
     def generate_regen_proj(self, proj):
         proj_file = self.generate_basic_custom_build(
             proj,
-            command=f'echo NUL > &quot;{self.tmp_dir}\\regen&quot; \n ninja build.ninja &amp;&amp; {sys.executable} &quot;{os.path.abspath(__file__)}&quot; --build_root &quot;{self.build_dir}&quot;',
+            command=f'echo NUL > &quot;{self.tmp_dir}\\regen&quot; \n {NINJA_CMD} build.ninja &amp;&amp; {sys.executable} &quot;{os.path.abspath(__file__)}&quot; --build_root &quot;{self.build_dir}&quot;',
             additional_inputs="build.ninja",
             verify_io=True,
         )
@@ -581,7 +583,7 @@ class VisualStudioSolution:
         # is, it indicates that are other projects building simultaneously and the whole
         # solution will be built by separate ninja project. If there is still only 1 temp
         # file, the project has been started alone and ninja will build only that project
-        ninja = f'ninja -C &quot;{self.build_dir}&quot;'
+        ninja = f'{NINJA_CMD} -C &quot;{self.build_dir}&quot;'
         compile = f'''
 &quot;{sys.executable}&quot; {self.private_dir}\\parallel_sleep.py &quot;{target.name}&quot;
 if %ERRORLEVEL% == 1 ({ninja} &quot;{target.output}&quot;) else (exit /b 0)
