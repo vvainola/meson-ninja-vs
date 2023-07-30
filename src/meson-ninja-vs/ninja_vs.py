@@ -501,7 +501,7 @@ class VisualStudioSolution:
         proj_file = self.generate_basic_custom_build(
             proj,
             command=f'echo NUL > &quot;{self.tmp_dir}\\regen&quot; \n {NINJA_CMD} build.ninja &amp;&amp; {sys.executable} &quot;{os.path.abspath(__file__)}&quot; --build_root &quot;{self.build_dir}&quot;',
-            additional_inputs="build.ninja",
+            additional_inputs=";".join(self.intro['buildsystem_files']),
             verify_io=True,
         )
 
