@@ -795,7 +795,7 @@ import os;
 import sys;
 open(f"{tmp_dir_forward_slash}/{{sys.argv[1]}}", "w").close()
 if len(os.listdir("{tmp_dir_forward_slash}")) < 2:
-    time.sleep(0.2)
+    time.sleep(0.5)
 sys.exit(len(os.listdir("{tmp_dir_forward_slash}")))
 ''')
 
