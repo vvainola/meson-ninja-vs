@@ -680,21 +680,26 @@ if %ERRORLEVEL% == 1 ({ninja} &quot;{target.output}&quot;) else (exit /b 0)
             src_paths.add(path)
             # All intermediate folders need to be added as well if there are
             # subfolders with more folders but no files
-            split_path = os.path.split(path)
+            path = os.path.normpath(path)
+            split_path = path.split(os.sep)
             intermediate_path = split_path[0]
-            if (intermediate_path == ''):
-                continue
             src_paths.add(intermediate_path)
-            for p in os.path.split(path)[1:]:
+            for p in split_path[1:]:
                 intermediate_path += f'\\{p}'
                 src_paths.add(intermediate_path)
 
         filter_file = open(f'{self.build_dir}/{target.id}.vcxproj.filters', 'w', encoding='utf-8')
         filter_file.write(vs_start_filter)
+        filter_folder = os.path.relpath(os.path.dirname(f'{self.build_dir}/{target.id}'), self.build_dir)
 
         # Create filter folders
         filter_file.write('\t<ItemGroup>\n')
         for src_path in src_paths:
+            if src_path == "":
+                continue
+            src_path = os.path.relpath(src_path, filter_folder)
+            if src_path.startswith("."):
+                continue
             filter_file.write(f'\t\t<Filter Include="{src_path}">\n')
             filter_file.write(f'\t\t\t<UniqueIdentifier>{{{generate_guid()}}}</UniqueIdentifier>\n')
             filter_file.write('\t\t</Filter>\n')
@@ -703,14 +708,20 @@ if %ERRORLEVEL% == 1 ({ninja} &quot;{target.output}&quot;) else (exit /b 0)
         # Add files to correct folder
         filter_file.write('\t<ItemGroup>\n')
         for f in all_src:
-            path = os.path.dirname(os.path.relpath(f, self.source_dir))
+            filter_path = os.path.dirname(os.path.relpath(f, self.source_dir))
+            if filter_path == "":
+                continue
+            filter_path = os.path.relpath(filter_path, filter_folder)
             filter_file.write(f'\t\t<ClCompile Include="{f}">\n')
-            filter_file.write(f'\t\t\t<Filter>{path}</Filter>\n')
+            filter_file.write(f'\t\t\t<Filter>{filter_path}</Filter>\n')
             filter_file.write(f'\t\t</ClCompile>\n')
         for h in self.headers[target.name]:
-            path = os.path.dirname(os.path.relpath(h, self.source_dir))
+            filter_path = os.path.dirname(os.path.relpath(h, self.source_dir))
+            if filter_path == "":
+                continue
+            filter_path = os.path.relpath(filter_path, filter_folder)
             filter_file.write(f'\t\t<ClInclude Include="{h}">\n')
-            filter_file.write(f'\t\t\t<Filter>{path}</Filter>\n')
+            filter_file.write(f'\t\t\t<Filter>{filter_path}</Filter>\n')
             filter_file.write(f'\t\t</ClInclude>\n')
         filter_file.write('\t</ItemGroup>\n')
         filter_file.write('</Project>\n')
