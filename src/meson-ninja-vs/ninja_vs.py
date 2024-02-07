@@ -312,7 +312,7 @@ def run_reconfigure(build_dir):
         opt_value = re.search("(?<=(>)).*(?=(</))", opt)
         if opt_name is None or opt_value is None:
             continue
-        opt_name = opt_name.group(0).replace("__", ".").replace("-", ":")
+        opt_name = opt_name.group(0).replace("__", ".").replace("--", ":")
         opt_value = opt_value.group(0)
         if opt_value != str(intro['buildoptions'][opt_name]['value']):
             changed_options.append(f'-D{opt_name}=\"{opt_value}\"')
@@ -521,7 +521,7 @@ class VisualStudioSolution:
                 rule.write(f'\t\t<Category Name="{category}" DisplayName="{category}" Description="" />\n')
         rule.write('\t</Rule.Categories>\n')
         for opt_name, opt in self.intro['buildoptions'].items():
-            opt_name = opt['name'].replace('.', '__').replace(":", "-")
+            opt_name = opt['name'].replace('.', '__').replace(":", "--")
             opt_type = opt['type']
             category = opt['section']
             if opt_type == 'combo':
@@ -551,7 +551,7 @@ class VisualStudioSolution:
         )
         proj_file.write('\t<PropertyGroup>\n')
         for opt_name, opt in self.intro['buildoptions'].items():
-            opt_name = opt["name"].replace(".", "__").replace(":", "-")
+            opt_name = opt["name"].replace(".", "__").replace(":", "--")
             proj_file.write(f'\t\t<meson_{opt_name}>{opt["value"]}</meson_{opt_name}>\n')
         proj_file.write('\t\t<UseDefaultPropertyPageSchemas>false</UseDefaultPropertyPageSchemas>')
         proj_file.write('\t</PropertyGroup>\n')
