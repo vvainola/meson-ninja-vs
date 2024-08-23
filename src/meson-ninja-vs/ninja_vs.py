@@ -284,7 +284,10 @@ def get_platform_toolset(build_dir, private_dir):
         return platform_toolset_txt.read_text()
     with open(Path(build_dir) / 'meson-logs/meson-log.txt', 'r') as f:
         txt = f.read()
-        if "C++ compiler for the build machine: cl (msvc 19.3" in txt:
+        if "C++ compiler for the build machine: cl (msvc 19.4" in txt:
+            platform_toolset_txt.write_text("v143")
+            return "v143"
+        elif "C++ compiler for the build machine: cl (msvc 19.3" in txt:
             platform_toolset_txt.write_text("v143")
             return "v143"
         elif "C++ compiler for the build machine: cl (msvc 19.2" in txt:
