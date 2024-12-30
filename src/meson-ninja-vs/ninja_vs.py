@@ -215,13 +215,14 @@ def generate_guid_from_path(path):
     return str(uuid.uuid5(uuid.NAMESPACE_URL, str(path))).upper()
 
 
-def get_introspect_files(build_dir):
+def get_introspect_files(build_dir) -> dict:
     intro = {}
     prefix = build_dir / 'meson-info'
     intro['benchmarks'] = prefix / 'intro-benchmarks.json'
     intro['buildoptions'] = prefix / 'intro-buildoptions.json'
     intro['buildsystem_files'] = prefix / 'intro-buildsystem_files.json'
     intro['dependencies'] = prefix / 'intro-dependencies.json'
+    intro['compilers'] = prefix / 'intro-compilers.json'
     intro['installed'] = prefix / 'intro-installed.json'
     intro['projectinfo'] = prefix / 'intro-projectinfo.json'
     intro['targets'] = prefix / 'intro-targets.json'
@@ -278,22 +279,17 @@ def get_arch(build_dir, private_dir):
             return arch.group(0)
     raise Exception("Unable to find machine architecture from meson-log.txt")
 
-def get_platform_toolset(build_dir, private_dir):
-    platform_toolset_txt = Path(private_dir) / 'platform_toolset.txt'
-    if platform_toolset_txt.exists():
-        return platform_toolset_txt.read_text()
-    with open(Path(build_dir) / 'meson-logs/meson-log.txt', 'r') as f:
-        txt = f.read()
-        if "C++ compiler for the build machine: cl (msvc 19.4" in txt:
-            platform_toolset_txt.write_text("v143")
+def get_platform_toolset(intro : dict) -> str:
+    cpp_compiler = intro['compilers']['build']['cpp']
+    version: str = cpp_compiler['version']
+    if cpp_compiler['id'] == 'msvc':
+        if version.startswith("19.4") or version.startswith("19.3"):
             return "v143"
-        elif "C++ compiler for the build machine: cl (msvc 19.3" in txt:
-            platform_toolset_txt.write_text("v143")
-            return "v143"
-        elif "C++ compiler for the build machine: cl (msvc 19.2" in txt:
-            platform_toolset_txt.write_text("v142")
+        elif version.startswith("19.2"):
             return "v142"
-    raise Exception("Unable to find machine platform toolset from meson-log.txt")
+    elif cpp_compiler['id'] == 'clang-cl':
+        return "ClangCL"
+    raise Exception('Unable to detect machine platform toolset from intro-compilers.json')
 
 
 
@@ -448,7 +444,7 @@ class VisualStudioSolution:
         proj_file = open(f'{self.build_dir}/{proj.id}.vcxproj', 'w', encoding='utf-8')
         proj_file.write(vs_header_tmpl.format(configuration=self.build_type, platform=self.platform))
         proj_file.write(vs_globals_tmpl.format(guid=proj.guid, platform=self.platform, name=proj.name))
-        proj_file.write(vs_config_tmpl.format(config_type="Utility", platform_toolset=get_platform_toolset(self.build_dir, self.private_dir)))
+        proj_file.write(vs_config_tmpl.format(config_type="Utility", platform_toolset=get_platform_toolset(self.intro)))
         # VS requires some contents in the project to be able to build it so a .dummy file is created for that
         proj_id_basename = os.path.basename(proj.id)
         proj_temp_dir = f'{proj_id_basename}_temp'
@@ -567,7 +563,7 @@ class VisualStudioSolution:
         proj_file = open(f'{self.build_dir}/{proj.id}.vcxproj', 'w', encoding='utf-8')
         proj_file.write(vs_header_tmpl.format(configuration=self.build_type, platform=self.platform))
         proj_file.write(vs_globals_tmpl.format(guid=proj.guid, platform=self.platform, name=proj.name))
-        proj_file.write(vs_config_tmpl.format(config_type="Utility", platform_toolset=get_platform_toolset(self.build_dir, self.private_dir)))
+        proj_file.write(vs_config_tmpl.format(config_type="Utility", platform_toolset=get_platform_toolset(self.intro)))
         # VS requires some contents in the project to be able to build it so a .dummy file is included for that
         # but it is not created so that VS always rebuilds the target when starting debugger
         proj_id_basename = os.path.basename(proj.id)
