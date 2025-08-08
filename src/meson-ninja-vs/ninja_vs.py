@@ -47,17 +47,17 @@ vs_globals_tmpl = """\t<PropertyGroup Label="Globals">
 \t\t<Platform>{platform}</Platform>
 \t\t<ProjectName>{name}</ProjectName>
 \t</PropertyGroup>
-\t<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>\n"""
+\t<Import Project="$(VCTargetsPath)\\Microsoft.Cpp.Default.props"/>\n"""
 
 vs_config_tmpl = """\t<PropertyGroup Label="Configuration">
 \t\t<PlatformToolset>{platform_toolset}</PlatformToolset>
 \t\t<ConfigurationType>{config_type}</ConfigurationType>
 \t</PropertyGroup>
-\t<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/>
+\t<Import Project="$(VCTargetsPath)\\Microsoft.Cpp.props"/>
 \t<ImportGroup Label="ExtensionSettings"/>
 \t<ImportGroup Label="Shared"/>
 \t<ImportGroup Label="PropertySheets">
-\t\t<Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform"/>
+\t\t<Import Project="$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform"/>
 \t</ImportGroup>
 \t<PropertyGroup Label="UserMacros"/>
 \n"""
@@ -106,7 +106,7 @@ vs_dependency_tmpl = """\t\t<ProjectReference Include="{vcxproj_name}">
 \t\t\t<LinkLibraryDependencies>{link_deps}</LinkLibraryDependencies>
 \t\t</ProjectReference>\n"""
 
-vs_end_proj_tmpl = """\t<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
+vs_end_proj_tmpl = """\t<Import Project="$(VCTargetsPath)\\Microsoft.Cpp.targets"/>
 \t<ImportGroup Label="ExtensionTargets"/>
 </Project>"""
 
@@ -640,7 +640,12 @@ if %ERRORLEVEL% == 1 ({ninja} &quot;{target.output}&quot;) else (exit /b 0)
         # For extra files use union of includes and preprocessor macros because the real values depend on the source file
         # so it is possible that same header is included with different macros. Some include paths need to be set to the
         # header because otherwise intellisense cannot jump from header to another header
+        processed_src = set()
         for src in target.extra_files + self.headers[target.name]:
+            # VS breaks if same file is included multiple times
+            if src in processed_src:
+                continue
+            processed_src.add(src)
             proj_file.write(f'\t\t<CLInclude Include="{src}">\n')
             proj_file.write(
                 f'\t\t\t<AdditionalIncludeDirectories>{";".join(all_include_paths)};%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>\n'
