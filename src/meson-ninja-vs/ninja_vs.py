@@ -283,7 +283,9 @@ def get_platform_toolset(intro : dict) -> str:
     cpp_compiler = intro['compilers']['build']['cpp']
     version: str = cpp_compiler['version']
     if cpp_compiler['id'] == 'msvc':
-        if version.startswith("19.4") or version.startswith("19.3"):
+        if version.startswith("19.5"):
+            return "v145"
+        elif version.startswith("19.4") or version.startswith("19.3"):
             return "v143"
         elif version.startswith("19.2"):
             return "v142"
